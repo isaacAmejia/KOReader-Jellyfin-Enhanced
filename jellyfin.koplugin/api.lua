@@ -280,7 +280,7 @@ function API:getUserViews()
     return false, last_error
 end
 
-function API:getItemsInLibrary(library_id, search_term)
+function API:getItemsInLibrary(library_id, search_term, start_index, limit)
     local server = self.config:getServerUrl()
     local user_id = url.escape(self.config:getUserId())
     local params =
@@ -302,6 +302,20 @@ function API:getItemsInLibrary(library_id, search_term)
             params
             .. "&SearchTerm="
             .. url.escape(search_term)
+    end
+
+    if start_index and start_index >= 0 then
+        params =
+            params
+            .. "&StartIndex="
+            .. tostring(math.floor(start_index))
+    end
+
+    if limit and limit > 0 then
+        params =
+            params
+            .. "&Limit="
+            .. tostring(math.floor(limit))
     end
 
     -- Jellyfin 12's current endpoint first, then the retained legacy route.
