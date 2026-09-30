@@ -287,10 +287,13 @@ function API:getItemsInLibrary(library_id, search_term)
         "ParentId="
         .. url.escape(library_id or "")
         .. "&Recursive=true"
-        .. "&Fields=Path,MediaSources,People,Overview"
+        .. "&Fields=People"
         .. "&IncludeItemTypes=Book,Audio,AudioBook"
         .. "&EnableUserData=true"
         .. "&EnableTotalRecordCount=true"
+        .. "&EnableImages=true"
+        .. "&ImageTypeLimit=1"
+        .. "&EnableImageTypes=Primary"
         .. "&SortBy=SortName"
         .. "&SortOrder=Ascending"
 
@@ -351,6 +354,59 @@ function API:getItemsInLibrary(library_id, search_term)
     return false, last_error
 end
 
+function API:getItemDetails(item_id)
+    local server = self.config:getServerUrl()
+    local user_id = url.escape(self.config:getUserId())
+    local escaped_item_id = url.escape(item_id or "")
+    local fields = "Path,MediaSources,People,Overview"
+
+    local urls = {
+        server
+            .. "/Items/"
+            .. escaped_item_id
+            .. "?userId="
+            .. user_id
+            .. "&Fields="
+            .. fields,
+        server
+            .. "/Users/"
+            .. user_id
+            .. "/Items/"
+            .. escaped_item_id,
+    }
+
+    local last_error = "network_error"
+
+    for index, item_url in ipairs(urls) do
+        local response_body = {}
+
+        local result, code, _, status = performRequest({
+            url = item_url,
+            method = "GET",
+            headers = {
+                ["Authorization"] = self:getAuthHeader(),
+            },
+            sink = socketutil.table_sink(response_body),
+        })
+
+        if isSuccess(code) then
+            local response = decodeBody(response_body)
+            if response and response.Id then
+                return true, response
+            end
+            return false, "parse_error"
+        end
+
+        last_error = requestError(result, code, status)
+
+        if index == 1 and code ~= 404 and code ~= 405 then
+            break
+        end
+    end
+
+    return false, last_error
+end
+
 function API:downloadItem(item_id, filepath, progress_callback)
     local download_url =
         self.config:getServerUrl()
@@ -372,14 +428,23 @@ function API:downloadItem(item_id, filepath, progress_callback)
     end
 
     local file_sink = socketutil.file_sink(file)
-    local sink = file_sink
+    local downloaded_size = 0
+    local last_progress_report = 0
+    local progress_step = 256 * 1024
 
-    if progress_callback then
-        sink = socketutil.chainSinkWithProgressCallback(
-            file_sink,
-            function(downloaded)
+    -- Avoid running a Lua callback for every small network chunk. On slower
+    -- e-readers that can become surprisingly expensive during large M4B
+    -- transfers. Report at most once per 256 KiB plus a final update.
+    local sink = function(chunk, err)
+        if chunk then
+            downloaded_size = downloaded_size + #chunk
+
+            if progress_callback
+                    and downloaded_size - last_progress_report >= progress_step
+            then
+                last_progress_report = downloaded_size
                 local ok_progress, progress_error =
-                    pcall(progress_callback, downloaded)
+                    pcall(progress_callback, downloaded_size)
 
                 if not ok_progress then
                     logger.warn(
@@ -388,7 +453,9 @@ function API:downloadItem(item_id, filepath, progress_callback)
                     )
                 end
             end
-        )
+        end
+
+        return file_sink(chunk, err)
     end
 
     local result, code, _, status = performRequest({
@@ -410,11 +477,10 @@ function API:downloadItem(item_id, filepath, progress_callback)
         return false, requestError(result, code, status), 0
     end
 
-    local downloaded_size = 0
-    local completed = io.open(temp_path, "rb")
-    if completed then
-        downloaded_size = completed:seek("end") or 0
-        completed:close()
+    if progress_callback
+            and downloaded_size > last_progress_report
+    then
+        pcall(progress_callback, downloaded_size)
     end
 
     -- On the Unix-like platforms supported by KOReader, rename is atomic
@@ -440,7 +506,7 @@ function API:downloadBookCover(item_id, filepath)
         self.config:getServerUrl()
         .. "/Items/"
         .. url.escape(item_id or "")
-        .. "/Images/Primary?maxWidth=400&format=Jpg"
+        .. "/Images/Primary?maxWidth=320&quality=85&format=Jpg"
 
     local file, file_error = io.open(filepath, "wb")
     if not file then
