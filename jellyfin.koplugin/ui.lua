@@ -314,14 +314,20 @@ function BookResultsView:getPageCount()
         return 1
     end
 
-    return math.ceil(#self.books / BOOKS_PER_PAGE)
+    local per_page =
+        self.books_per_page or BOOKS_PER_PAGE
+
+    return math.ceil(#self.books / per_page)
 end
 
 function BookResultsView:getPageBooks()
-    local start_index = ((self.page - 1) * BOOKS_PER_PAGE) + 1
+    local per_page =
+        self.books_per_page or BOOKS_PER_PAGE
+    local start_index =
+        ((self.page - 1) * per_page) + 1
 
     local end_index = math.min(
-        start_index + BOOKS_PER_PAGE - 1,
+        start_index + per_page - 1,
         #self.books
     )
 
@@ -372,14 +378,26 @@ function BookResultsView:build()
     local content_top = self.titlebar:getHeight()
     local footer_height = Screen:scaleBySize(55)
 
-    local row_height = math.floor(
-        (self.screen_h - content_top - footer_height)
-        / BOOKS_PER_PAGE
+    local available_height =
+        self.screen_h - content_top - footer_height
+    local minimum_row_height =
+        Screen:scaleBySize(75)
+
+    self.books_per_page = math.max(
+        1,
+        math.min(
+            BOOKS_PER_PAGE,
+            math.floor(
+                available_height
+                / minimum_row_height
+            )
+        )
     )
 
-    if row_height < Screen:scaleBySize(75) then
-        row_height = Screen:scaleBySize(75)
-    end
+    local row_height = math.floor(
+        available_height
+        / self.books_per_page
+    )
 
     local rows = {}
 
@@ -395,7 +413,7 @@ function BookResultsView:build()
         })
     end
 
-    while #rows < BOOKS_PER_PAGE do
+    while #rows < self.books_per_page do
         table.insert(rows, VerticalSpan:new {
             height = row_height,
         })
@@ -507,6 +525,9 @@ function BookResultsView:setBooks(books, search_term)
     self.search_term = search_term
     self.page = 1
 
+    self.ui_handler:prepareBookCovers(
+        self:getPageBooks()
+    )
     self:refresh()
 end
 
@@ -516,6 +537,9 @@ function BookResultsView:previousPage()
     end
 
     self.page = self.page - 1
+    self.ui_handler:prepareBookCovers(
+        self:getPageBooks()
+    )
     self:refresh()
 end
 
@@ -525,6 +549,9 @@ function BookResultsView:nextPage()
     end
 
     self.page = self.page + 1
+    self.ui_handler:prepareBookCovers(
+        self:getPageBooks()
+    )
     self:refresh()
 end
 
@@ -835,36 +862,55 @@ Cover handling
 ]]
 
 function UI:prepareBookCovers(books)
-    util.makePath(COVER_CACHE_DIR)
+    local path_ok, path_err =
+        util.makePath(COVER_CACHE_DIR)
 
-    for _, book in ipairs(books) do
-        local cover_path =
-            COVER_CACHE_DIR .. "/" .. book.Id .. ".jpg"
+    if not path_ok then
+        logger.warn(
+            "Jellyfin: Could not create cover cache:",
+            tostring(path_err)
+        )
+        return
+    end
 
-        if not util.fileExists(cover_path) then
-            logger.info(
-                "Jellyfin: Downloading cover for:",
-                book.Name
-            )
+    for _, book in ipairs(books or {}) do
+        if book
+                and book.Id
+                and not book._jellyfin_cover_checked
+        then
+            book._jellyfin_cover_checked = true
 
-            local success, error =
-                self.api:downloadBookCover(
-                    book.Id,
-                    cover_path
+            local cover_path =
+                COVER_CACHE_DIR
+                .. "/"
+                .. book.Id
+                .. ".jpg"
+
+            if not util.fileExists(cover_path) then
+                logger.info(
+                    "Jellyfin: Downloading cover for:",
+                    book.Name or book.Id
                 )
 
-            if not success then
-                logger.warn(
-                    "Jellyfin: Failed to download cover:",
-                    book.Name,
-                    error
-                )
+                local success, error =
+                    self.api:downloadBookCover(
+                        book.Id,
+                        cover_path
+                    )
 
-                cover_path = nil
+                if not success then
+                    logger.warn(
+                        "Jellyfin: Failed to download cover:",
+                        book.Name or book.Id,
+                        error
+                    )
+
+                    cover_path = nil
+                end
             end
-        end
 
-        book.cover_path = cover_path
+            book.cover_path = cover_path
+        end
     end
 end
 
@@ -887,7 +933,17 @@ function UI:showBooksMenu(
     self.current_books = books
 
     NetworkMgr:runWhenOnline(function()
-        self:prepareBookCovers(books)
+        local first_page_books = {}
+
+        for i = 1, math.min(
+            BOOKS_PER_PAGE,
+            #books
+        ) do
+            first_page_books[#first_page_books + 1] =
+                books[i]
+        end
+
+        self:prepareBookCovers(first_page_books)
 
         if self.results_view then
             UIManager:close(self.results_view)
@@ -991,10 +1047,6 @@ function UI:searchBooks(
                                 end
 
                                 self.current_books = items
-
-                                self:prepareBookCovers(
-                                    items
-                                )
 
                                 if existing_view then
                                     existing_view:setBooks(
