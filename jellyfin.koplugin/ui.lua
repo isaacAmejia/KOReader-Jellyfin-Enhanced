@@ -627,6 +627,7 @@ function UI:new(config, api)
         current_books = nil,
         results_view = nil,
         cover_job_id = 0,
+        detailed_book = nil,
     }
 
     setmetatable(o, self)
@@ -1189,6 +1190,17 @@ end
 Book details
 ]]
 
+function UI:releaseItemDetails(book)
+    if not book then
+        return
+    end
+
+    book.Path = nil
+    book.MediaSources = nil
+    book.Overview = nil
+    book._jellyfin_details_loaded = nil
+end
+
 function UI:loadItemDetails(book)
     if book._jellyfin_details_loaded then
         return true
@@ -1205,13 +1217,36 @@ function UI:loadItemDetails(book)
         return false, result
     end
 
-    -- Keep the original table identity because visible result widgets hold
-    -- references to it. Only enrich it with the full single-item DTO.
-    for key, value in pairs(result) do
-        book[key] = value
+    if self.detailed_book
+            and self.detailed_book ~= book
+    then
+        self:releaseItemDetails(
+            self.detailed_book
+        )
+    end
+
+    -- Visible result widgets hold references to the original table, so enrich
+    -- it in place, but only with fields needed by the details/download path.
+    -- This prevents a browsing session from retaining whole Jellyfin DTOs.
+    book.Path = result.Path
+    book.MediaSources = result.MediaSources
+    book.Overview = result.Overview
+
+    if result.People then
+        book.People = result.People
+    end
+    if result.Container then
+        book.Container = result.Container
+    end
+    if result.Type then
+        book.Type = result.Type
+    end
+    if result.UserData then
+        book.UserData = result.UserData
     end
 
     book._jellyfin_details_loaded = true
+    self.detailed_book = book
     return true
 end
 
