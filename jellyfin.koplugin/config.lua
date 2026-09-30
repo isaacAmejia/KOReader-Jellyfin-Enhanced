@@ -39,16 +39,19 @@ function Config:setAccessToken(token)
 end
 
 function Config:getDeviceId()
-	return G_reader_settings:readSetting("device_id") or ""
+	return G_reader_settings:readSetting("jellyfin_device_id") or ""
 end
 
 function Config:setDeviceId(device_id)
-	G_reader_settings:saveSetting("device_id", device_id)
+	G_reader_settings:saveSetting("jellyfin_device_id", device_id)
 end
 
 function Config:clearAuth()
 	G_reader_settings:delSetting("jellyfin_access_token")
 	G_reader_settings:delSetting("jellyfin_user_id")
+	if G_reader_settings.flush then
+		G_reader_settings:flush()
+	end
 end
 
 function Config:isLoggedIn()
@@ -70,9 +73,17 @@ function Config:initialize()
 		G_reader_settings:saveSetting("jellyfin_access_token", "")
 	end
 
-	if not G_reader_settings:readSetting("device_id") then
-		local device_id = "koreader_" .. os.time() .. "_" .. math.random(1000, 9999)
-		G_reader_settings:saveSetting("device_id", device_id)
+	if not G_reader_settings:readSetting("jellyfin_device_id") then
+		-- Migrate the key used by earlier versions without continuing to
+		-- share a generic setting name with unrelated KOReader plugins.
+		local previous_id = G_reader_settings:readSetting("device_id")
+		local device_id = previous_id
+			or ("koreader_" .. os.time() .. "_" .. math.random(1000, 9999))
+		G_reader_settings:saveSetting("jellyfin_device_id", device_id)
+	end
+
+	if G_reader_settings.flush then
+		G_reader_settings:flush()
 	end
 end
 
