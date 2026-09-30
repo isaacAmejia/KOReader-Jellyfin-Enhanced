@@ -206,7 +206,7 @@ function API:getItemsInLibrary(library_id, search_term)
 	end
 end
 
-function API:downloadItem(item_id, filepath)
+function API:downloadItem(item_id, filepath, progress_callback)
 	local download_url = self.config:getServerUrl() .. "/Items/" .. item_id .. "/Download"
 
 	local file = io.open(filepath, "wb")
@@ -214,24 +214,40 @@ function API:downloadItem(item_id, filepath)
 		return false, "file_error"
 	end
 
-	local res, code = http.request {
+	local file_sink = ltn12.sink.file(file)
+	local downloaded = 0
+
+	local sink = function(chunk, err)
+		if chunk then
+			downloaded = downloaded + #chunk
+			if progress_callback then
+				local ok_progress, progress_err = pcall(progress_callback, downloaded)
+				if not ok_progress then
+					logger.warn("Jellyfin API: progress callback failed:", progress_err)
+				end
+			end
+		end
+		return file_sink(chunk, err)
+	end
+
+	local _, code = http.request {
 		url = download_url,
 		method = "GET",
 		headers = {
 			["Authorization"] = self:getAuthHeader(),
 		},
-		sink = ltn12.sink.file(file),
+		sink = sink,
 	}
 
 	if io.type(file) == "file" then
 		file:close()
 	end
 
-	if code == 200 then
-		return true
+	if type(code) == "number" and code >= 200 and code < 300 then
+		return true, nil, downloaded
 	else
 		os.remove(filepath)
-		return false, code
+		return false, code or "network_error", downloaded
 	end
 end
 
