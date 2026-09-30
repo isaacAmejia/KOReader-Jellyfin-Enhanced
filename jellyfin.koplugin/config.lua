@@ -17,7 +17,12 @@ function Config:setServerUrl(url)
 
 	-- Authentication tokens are server-specific. Avoid reusing credentials
 	-- after the user points the plugin at a different Jellyfin server.
-	if previous ~= "" and previous ~= url then
+	if previous ~= url
+			and (
+				self:getUserId() ~= ""
+				or self:getAccessToken() ~= ""
+			)
+	then
 		self:clearAuth()
 	elseif G_reader_settings.flush then
 		G_reader_settings:flush()
@@ -75,7 +80,10 @@ function Config:initialize()
 		G_reader_settings:saveSetting("jellyfin_access_token", "")
 	end
 
-	if not G_reader_settings:readSetting("jellyfin_device_id") then
+	local jellyfin_device_id =
+		G_reader_settings:readSetting("jellyfin_device_id")
+
+	if not jellyfin_device_id or jellyfin_device_id == "" then
 		-- KOReader itself maintains a stable random UUID in "device_id".
 		-- Reuse it for new installs instead of generating a weaker timestamp ID.
 		local device_id =
