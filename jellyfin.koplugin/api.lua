@@ -525,7 +525,7 @@ function API:downloadBookCover(item_id, filepath)
             ["Accept-Encoding"] = "identity",
         },
         sink = socketutil.file_sink(file),
-    }, true)
+    })
 
     if io.type(file) == "file" then
         file:close()
