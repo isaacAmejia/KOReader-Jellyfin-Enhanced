@@ -228,82 +228,127 @@ end
 
 function API:getUserViews()
     local user_id = self.config:getUserId()
+    local server = self.config:getServerUrl()
 
-    local views_url =
-        self.config:getServerUrl()
-        .. "/Users/"
-        .. url.escape(user_id)
-        .. "/Views"
-
-    local response_body = {}
+    -- Jellyfin 12's current endpoint. Keep the legacy user-scoped route as
+    -- a fallback for older servers.
+    local urls = {
+        server
+            .. "/UserViews?userId="
+            .. url.escape(user_id),
+        server
+            .. "/Users/"
+            .. url.escape(user_id)
+            .. "/Views",
+    }
 
     logger.info("Jellyfin API: Fetching user libraries")
 
-    local result, code, _, status = performRequest({
-        url = views_url,
-        method = "GET",
-        headers = {
-            ["Authorization"] = self:getAuthHeader(),
-        },
-        sink = socketutil.table_sink(response_body),
-    })
+    local last_error = "network_error"
 
-    logger.info("Jellyfin API: Views response code:", code)
+    for index, views_url in ipairs(urls) do
+        local response_body = {}
 
-    if isSuccess(code) then
-        local response = decodeBody(response_body)
-        if response and type(response.Items) == "table" then
-            return true, response
+        local result, code, _, status = performRequest({
+            url = views_url,
+            method = "GET",
+            headers = {
+                ["Authorization"] = self:getAuthHeader(),
+            },
+            sink = socketutil.table_sink(response_body),
+        })
+
+        logger.info("Jellyfin API: Views response code:", code)
+
+        if isSuccess(code) then
+            local response = decodeBody(response_body)
+            if response and type(response.Items) == "table" then
+                return true, response
+            end
+            return false, "parse_error"
         end
-        return false, "parse_error"
+
+        last_error = requestError(result, code, status)
+
+        -- Only try the legacy endpoint when the current route is not present
+        -- or not accepted. Authentication/permission failures should surface.
+        if index == 1 and code ~= 404 and code ~= 405 then
+            break
+        end
     end
 
-    return false, requestError(result, code, status)
+    return false, last_error
 end
 
 function API:getItemsInLibrary(library_id, search_term)
-    local items_url =
-        self.config:getServerUrl()
-        .. "/Users/"
-        .. url.escape(self.config:getUserId())
-        .. "/Items"
-        .. "?ParentId="
+    local server = self.config:getServerUrl()
+    local user_id = url.escape(self.config:getUserId())
+    local params =
+        "ParentId="
         .. url.escape(library_id or "")
         .. "&Recursive=true"
         .. "&Fields=Path,MediaSources,People,Overview"
         .. "&IncludeItemTypes=Book,Audio,AudioBook"
+        .. "&EnableUserData=true"
+        .. "&EnableTotalRecordCount=true"
+        .. "&SortBy=SortName"
+        .. "&SortOrder=Ascending"
 
     if search_term and search_term ~= "" then
-        items_url =
-            items_url
+        params =
+            params
             .. "&SearchTerm="
             .. url.escape(search_term)
     end
 
+    -- Jellyfin 12's current endpoint first, then the retained legacy route.
+    local urls = {
+        server
+            .. "/Items?userId="
+            .. user_id
+            .. "&"
+            .. params,
+        server
+            .. "/Users/"
+            .. user_id
+            .. "/Items?"
+            .. params,
+    }
+
     logger.info("Jellyfin API: Fetching library items")
 
-    local response_body = {}
+    local last_error = "network_error"
 
-    local result, code, _, status = performRequest({
-        url = items_url,
-        method = "GET",
-        headers = {
-            ["Authorization"] = self:getAuthHeader(),
-        },
-        sink = socketutil.table_sink(response_body),
-    })
+    for index, items_url in ipairs(urls) do
+        local response_body = {}
 
-    logger.info("Jellyfin API: Items response code:", code)
+        local result, code, _, status = performRequest({
+            url = items_url,
+            method = "GET",
+            headers = {
+                ["Authorization"] = self:getAuthHeader(),
+            },
+            sink = socketutil.table_sink(response_body),
+        })
 
-    if isSuccess(code) then
-        local response = decodeBody(response_body)
-        if response and type(response.Items) == "table" then
-            return true, response
+        logger.info("Jellyfin API: Items response code:", code)
+
+        if isSuccess(code) then
+            local response = decodeBody(response_body)
+            if response and type(response.Items) == "table" then
+                return true, response
+            end
+            return false, "parse_error"
         end
-        return false, "parse_error"
+
+        last_error = requestError(result, code, status)
+
+        if index == 1 and code ~= 404 and code ~= 405 then
+            break
+        end
     end
 
-    return false, requestError(result, code, status)
+    return false, last_error
 end
 
 function API:downloadItem(item_id, filepath, progress_callback)
