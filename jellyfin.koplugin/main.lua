@@ -16,10 +16,16 @@ local UIManager = require("ui/uimanager")
 local logger = require("logger")
 local _ = require("gettext")
 
-local Config = require("config")
-local API = require("api")
-local Auth = require("auth")
-local UI = require("ui")
+-- Load our own modules by absolute plugin-relative path instead of generic
+-- require("config") / require("api") names. Third-party KOReader plugins share
+-- Lua's module cache and search path, so generic names can collide.
+local PLUGIN_DIR =
+    (debug.getinfo(1, "S").source or ""):match("^@(.*/)") or "./"
+
+local Config = dofile(PLUGIN_DIR .. "config.lua")
+local API = dofile(PLUGIN_DIR .. "api.lua")
+local Auth = dofile(PLUGIN_DIR .. "auth.lua")
+local UI = dofile(PLUGIN_DIR .. "ui.lua")
 
 local Jellyfin = WidgetContainer:extend {
     name = "jellyfin",
