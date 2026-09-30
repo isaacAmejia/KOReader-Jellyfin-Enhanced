@@ -1579,11 +1579,11 @@ function UI:downloadBook(book)
                 )
 
             if not ok_download then
+                error = tostring(success)
                 success = false
-                error = tostring(success or error)
                 logger.err(
                     "Jellyfin: Download raised an error:",
-                    tostring(error)
+                    error
                 )
             end
 
