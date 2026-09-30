@@ -134,6 +134,11 @@ function Auth:showQuickConnectCode(code, secret)
 	local button_dialog
 	button_dialog = ButtonDialog:new {
 		title = T(_("Enter this code in Jellyfin:\n\n%1\n\nWaiting for authorisation..."), code),
+		tap_close_callback = function()
+			if button_dialog then
+				button_dialog._jellyfin_qc_cancelled = true
+			end
+		end,
 		buttons = {
 			{
 				{
