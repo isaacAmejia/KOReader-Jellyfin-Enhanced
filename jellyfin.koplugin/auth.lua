@@ -151,20 +151,26 @@ function Auth:showQuickConnectCode(code, secret)
 end
 
 function Auth:pollQuickConnect(secret, dialog)
+	if not dialog or dialog._jellyfin_qc_cancelled then
+		return
+	end
+
 	local success, result = self.api:checkQuickConnect(secret)
 
 	if success then
 		if result.Authenticated then
+			dialog._jellyfin_qc_cancelled = true
 			UIManager:close(dialog)
 			self:completeQuickConnect(secret)
 		else
 			UIManager:scheduleIn(2, function()
-				if dialog then
+				if dialog and not dialog._jellyfin_qc_cancelled then
 					self:pollQuickConnect(secret, dialog)
 				end
 			end)
 		end
 	else
+		dialog._jellyfin_qc_cancelled = true
 		UIManager:close(dialog)
 		UIManager:show(InfoMessage:new {
 			text = T(_("Quick Connect check failed (code %1)"), result),
