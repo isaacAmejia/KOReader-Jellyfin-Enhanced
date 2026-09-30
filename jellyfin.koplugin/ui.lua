@@ -90,18 +90,63 @@ local function itemPath(book)
     return path
 end
 
-local function itemExtension(book)
-    local path = itemPath(book)
-    local ext = path and path:match("%.([^./\\]+)$")
-
-    if ext and #ext <= 12 then
-        return "." .. ext:lower()
+local function normalizeExtension(value)
+    if type(value) ~= "string" then
+        return nil
     end
 
-    if book and (book.Type == "AudioBook" or book.Type == "Audio") then
+    value = trim(value):lower()
+    value = value:gsub("^%.", "")
+    value = value:match("^([^,;]+)") or value
+
+    if value:match("^[%w]+$")
+            and #value > 0
+            and #value <= 12
+    then
+        return "." .. value
+    end
+
+    return nil
+end
+
+local function itemExtension(book)
+    local path = itemPath(book)
+    local path_ext =
+        path
+        and path:match("%.([^./\\]+)$")
+    local ext = normalizeExtension(path_ext)
+
+    if ext then
+        return ext
+    end
+
+    local media_source =
+        book
+        and type(book.MediaSources) == "table"
+        and book.MediaSources[1]
+        or nil
+
+    ext = normalizeExtension(
+        media_source and media_source.Container
+    ) or normalizeExtension(
+        book and book.Container
+    )
+
+    if ext then
+        return ext
+    end
+
+    if book
+            and (
+                book.Type == "AudioBook"
+                or book.Type == "Audio"
+            )
+    then
         return ".m4b"
     end
 
+    -- Jellyfin Books are most commonly EPUBs. This final fallback is only
+    -- used when the server supplied neither a path extension nor a container.
     return ".epub"
 end
 
