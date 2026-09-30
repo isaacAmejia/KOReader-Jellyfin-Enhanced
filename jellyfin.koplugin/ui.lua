@@ -408,6 +408,8 @@ function BookResultsView:build()
         end,
 
         close_callback = function()
+            self.ui_handler.cover_job_id =
+                (self.ui_handler.cover_job_id or 0) + 1
             UIManager:close(self)
 
             if self.ui_handler.current_libraries then
@@ -584,10 +586,8 @@ function BookResultsView:setBooks(books, search_term)
     self.search_term = search_term
     self.page = 1
 
-    self.ui_handler:prepareBookCovers(
-        self:getPageBooks()
-    )
     self:refresh()
+    self.ui_handler:queuePageCovers(self)
 end
 
 function BookResultsView:previousPage()
@@ -596,10 +596,8 @@ function BookResultsView:previousPage()
     end
 
     self.page = self.page - 1
-    self.ui_handler:prepareBookCovers(
-        self:getPageBooks()
-    )
     self:refresh()
+    self.ui_handler:queuePageCovers(self)
 end
 
 function BookResultsView:nextPage()
@@ -608,10 +606,8 @@ function BookResultsView:nextPage()
     end
 
     self.page = self.page + 1
-    self.ui_handler:prepareBookCovers(
-        self:getPageBooks()
-    )
     self:refresh()
+    self.ui_handler:queuePageCovers(self)
 end
 
 --[[
@@ -625,6 +621,7 @@ function UI:new(config, api)
         current_libraries = nil,
         current_books = nil,
         results_view = nil,
+        cover_job_id = 0,
     }
 
     setmetatable(o, self)
@@ -944,43 +941,78 @@ function UI:prepareBookCovers(books)
         then
             book._jellyfin_cover_checked = true
 
-            local cover_path =
-                COVER_CACHE_DIR
-                .. "/"
-                .. book.Id
-                .. ".jpg"
+            -- Current Jellyfin item queries include Primary image tags.
+            -- Avoid a network round-trip for items the server explicitly
+            -- reports as having no primary image. Older servers that omit
+            -- ImageTags entirely still get the normal download attempt.
+            if type(book.ImageTags) == "table"
+                    and not book.ImageTags.Primary
+            then
+                book.cover_path = nil
+            else
+                local cover_path =
+                    COVER_CACHE_DIR
+                    .. "/"
+                    .. book.Id
+                    .. ".jpg"
 
-            if not util.fileExists(cover_path) then
-                logger.info(
-                    "Jellyfin: Downloading cover for:",
-                    book.Name or book.Id
-                )
+                if not util.fileExists(cover_path) then
+                    local success, error =
+                        self.api:downloadBookCover(
+                            book.Id,
+                            cover_path
+                        )
 
-                local success, error =
-                    self.api:downloadBookCover(
-                        book.Id,
-                        cover_path
-                    )
-
-                if not success then
-                    logger.warn(
-                        "Jellyfin: Failed to download cover:",
-                        book.Name or book.Id,
-                        error
-                    )
-
-                    cover_path = nil
+                    if not success then
+                        logger.warn(
+                            "Jellyfin: Failed to download cover:",
+                            book.Name or book.Id,
+                            error
+                        )
+                        cover_path = nil
+                    end
                 end
-            end
 
-            book.cover_path = cover_path
+                book.cover_path = cover_path
+            end
         end
     end
 end
 
---[[
-Book results
-]]
+function UI:queuePageCovers(view)
+    self.cover_job_id =
+        (self.cover_job_id or 0) + 1
+
+    local job_id = self.cover_job_id
+    local books = view:getPageBooks()
+    local index = 1
+
+    local function loadNext()
+        if self.cover_job_id ~= job_id
+                or self.results_view ~= view
+        then
+            return
+        end
+
+        local book = books[index]
+        if not book then
+            -- Repaint once after the small visible-page batch instead of
+            -- rebuilding the e-ink page after every individual cover.
+            view:refresh()
+            return
+        end
+
+        self:prepareBookCovers({ book })
+        index = index + 1
+
+        -- Yield between requests so KOReader can process a page change/close
+        -- and cancel the remaining cover work instead of blindly fetching
+        -- covers the user is no longer looking at.
+        UIManager:scheduleIn(0.01, loadNext)
+    end
+
+    UIManager:scheduleIn(0.05, loadNext)
+end
 
 function UI:showBooksMenu(
     books,
@@ -996,35 +1028,22 @@ function UI:showBooksMenu(
 
     self.current_books = books
 
-    NetworkMgr:runWhenOnline(function()
-        local first_page_books = {}
+    if self.results_view then
+        UIManager:close(self.results_view)
+        self.results_view = nil
+    end
 
-        for i = 1, math.min(
-            BOOKS_PER_PAGE,
-            #books
-        ) do
-            first_page_books[#first_page_books + 1] =
-                books[i]
-        end
+    self.results_view = BookResultsView:new {
+        ui_handler = self,
+        books = books,
+        library_id = library_id,
+        library_name = library_name,
+        search_term = search_term,
+        page = 1,
+    }
 
-        self:prepareBookCovers(first_page_books)
-
-        if self.results_view then
-            UIManager:close(self.results_view)
-            self.results_view = nil
-        end
-
-        self.results_view = BookResultsView:new {
-            ui_handler = self,
-            books = books,
-            library_id = library_id,
-            library_name = library_name,
-            search_term = search_term,
-            page = 1,
-        }
-
-        UIManager:show(self.results_view)
-    end)
+    UIManager:show(self.results_view)
+    self:queuePageCovers(self.results_view)
 end
 
 --[[
@@ -1152,7 +1171,65 @@ end
 Book details
 ]]
 
+function UI:loadItemDetails(book)
+    if book._jellyfin_details_loaded then
+        return true
+    end
+
+    if not book.Id then
+        return false, "invalid_item"
+    end
+
+    local success, result =
+        self.api:getItemDetails(book.Id)
+
+    if not success then
+        return false, result
+    end
+
+    -- Keep the original table identity because visible result widgets hold
+    -- references to it. Only enrich it with the full single-item DTO.
+    for key, value in pairs(result) do
+        book[key] = value
+    end
+
+    book._jellyfin_details_loaded = true
+    return true
+end
+
 function UI:showBookDetails(book)
+    if book._jellyfin_details_loaded then
+        self:showBookDetailsLoaded(book)
+        return
+    end
+
+    NetworkMgr:runWhenOnline(function()
+        UIManager:show(InfoMessage:new {
+            text = _("Loading book details..."),
+            timeout = 1,
+        })
+
+        -- Yield once so the loading message can paint before the synchronous
+        -- single-item request starts.
+        UIManager:scheduleIn(0.05, function()
+            local success, error =
+                self:loadItemDetails(book)
+
+            if not success then
+                self:handleApiError(
+                    error,
+                    _("Failed to load book details")
+                )
+                return
+            end
+
+            self:prepareBookCovers({ book })
+            self:showBookDetailsLoaded(book)
+        end)
+    end)
+end
+
+function UI:showBookDetailsLoaded(book)
     logger.info(
         "Jellyfin: Showing details for book:",
         book.Name
@@ -1600,6 +1677,23 @@ Download functionality
 ]]
 
 function UI:downloadBook(book)
+    if not book._jellyfin_details_loaded then
+        NetworkMgr:runWhenOnline(function()
+            local success, error =
+                self:loadItemDetails(book)
+
+            if success then
+                self:downloadBook(book)
+            else
+                self:handleApiError(
+                    error,
+                    _("Failed to load download information")
+                )
+            end
+        end)
+        return
+    end
+
     logger.info(
         "Jellyfin: Starting download for book:",
         book.Name,
