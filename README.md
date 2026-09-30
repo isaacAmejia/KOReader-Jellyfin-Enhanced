@@ -59,6 +59,10 @@ The current development branch has been source-audited against **KOReader v2026.
 
 The plugin uses KOReader data-directory APIs rather than Kindle-specific filesystem locations, so it is intended to be portable across KOReader platforms. A clean-device runtime test is still recommended before treating a development build as a release.
 
+### Low-resource design
+
+The browser is designed for slower e-readers: Jellyfin results are fetched in 40-item batches, full item metadata is loaded only for the selected book, covers are fetched only for the visible page, and the local thumbnail cache is bounded. Networking and the larger browser UI are also loaded only when the plugin is actually used.
+
 ## Installation
 
 Copy the folder:
