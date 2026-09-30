@@ -162,6 +162,8 @@ local function isAudiobook(book)
 end
 
 local COVER_CACHE_DIR = DataStorage:getDataDir() .. "/jellyfin_covers"
+local COVER_CACHE_KEEP = 120
+local COVER_CACHE_PRUNE_AT = 160
 local BOOKS_PER_PAGE = 5
 
 local Screen = Device.screen
@@ -628,6 +630,7 @@ function UI:new(config, api)
         results_view = nil,
         cover_job_id = 0,
         detailed_book = nil,
+        cover_cache_pruned = false,
     }
 
     setmetatable(o, self)
@@ -928,6 +931,63 @@ end
 Cover handling
 ]]
 
+function UI:pruneCoverCache()
+    if self.cover_cache_pruned then
+        return
+    end
+    self.cover_cache_pruned = true
+
+    local ok_lfs, lfs =
+        pcall(require, "libs/libkoreader-lfs")
+    if not ok_lfs or not lfs then
+        return
+    end
+
+    local ok_scan, files = pcall(function()
+        local entries = {}
+
+        for name in lfs.dir(COVER_CACHE_DIR) do
+            if name ~= "."
+                    and name ~= ".."
+                    and name:match("%.jpg$")
+            then
+                local path =
+                    COVER_CACHE_DIR .. "/" .. name
+                local attr = lfs.attributes(path)
+
+                if attr and attr.mode == "file" then
+                    entries[#entries + 1] = {
+                        path = path,
+                        modified = attr.modification or 0,
+                    }
+                end
+            end
+        end
+
+        return entries
+    end)
+
+    if not ok_scan
+            or type(files) ~= "table"
+            or #files <= COVER_CACHE_PRUNE_AT
+    then
+        return
+    end
+
+    table.sort(files, function(a, b)
+        return a.modified < b.modified
+    end)
+
+    local remove_count =
+        #files - COVER_CACHE_KEEP
+
+    for i = 1, remove_count do
+        os.remove(files[i].path)
+    end
+
+    collectgarbage("step", 80)
+end
+
 function UI:prepareBookCovers(books)
     local changed = false
     local path_ok, path_err =
@@ -940,6 +1000,8 @@ function UI:prepareBookCovers(books)
         )
         return false
     end
+
+    self:pruneCoverCache()
 
     for _, book in ipairs(books or {}) do
         if book
@@ -1045,6 +1107,11 @@ function UI:showBooksMenu(
         "books"
     )
 
+    if self.detailed_book then
+        self:releaseItemDetails(self.detailed_book)
+        self.detailed_book = nil
+    end
+
     self.current_books = books
 
     if self.results_view then
@@ -1146,6 +1213,13 @@ function UI:searchBooks(
                                     )
 
                                     return
+                                end
+
+                                if self.detailed_book then
+                                    self:releaseItemDetails(
+                                        self.detailed_book
+                                    )
+                                    self.detailed_book = nil
                                 end
 
                                 self.current_books = items
@@ -1812,7 +1886,7 @@ function UI:downloadBook(book)
                 and expected_size > 0
                 and expected_size
                 or nil,
-            refresh_time_seconds = 0.5,
+            refresh_time_seconds = 1.0,
             dismissable = false,
         }
 
@@ -1822,19 +1896,23 @@ function UI:downloadBook(book)
         -- chance to paint the download dialog before the socket starts
         -- blocking the normal event loop.
         UIManager:scheduleIn(0.1, function()
+            local progress_callback
+
+            if expected_size and expected_size > 0 then
+                progress_callback = function(downloaded)
+                    progress_dialog:reportProgress(
+                        math.min(downloaded, expected_size)
+                    )
+                end
+            end
+
             local ok_download, success, error =
                 pcall(
                     self.api.downloadItem,
                     self.api,
                     book.Id,
                     filepath,
-                    function(downloaded)
-                        if expected_size and expected_size > 0 then
-                            progress_dialog:reportProgress(
-                                math.min(downloaded, expected_size)
-                            )
-                        end
-                    end
+                    progress_callback
                 )
 
             if not ok_download then
