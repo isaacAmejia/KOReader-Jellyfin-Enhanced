@@ -628,11 +628,16 @@ function BookResultsView:nextPage()
     local target_page = self.page + 1
     local per_page =
         self.books_per_page or BOOKS_PER_PAGE
-    local target_first_index =
-        ((target_page - 1) * per_page) + 1
+    local total_count =
+        self.total_count or #self.books
+    local target_last_index =
+        math.min(
+            target_page * per_page,
+            total_count
+        )
 
-    if target_first_index > #self.books
-            and #self.books < (self.total_count or #self.books)
+    if target_last_index > #self.books
+            and #self.books < total_count
     then
         self.ui_handler:loadMoreBooks(
             self,
@@ -1196,10 +1201,13 @@ function UI:loadMoreBooks(view, target_page)
             local per_page =
                 view.books_per_page
                 or BOOKS_PER_PAGE
-            local target_first_index =
-                ((target_page - 1) * per_page) + 1
+            local target_last_index =
+                math.min(
+                    target_page * per_page,
+                    view.total_count or #view.books
+                )
 
-            if target_first_index <= #view.books then
+            if target_last_index <= #view.books then
                 view.page = target_page
             end
 
