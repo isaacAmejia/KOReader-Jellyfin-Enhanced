@@ -412,6 +412,10 @@ function BookResultsView:build()
                 (self.ui_handler.cover_job_id or 0) + 1
             UIManager:close(self)
 
+            if self.ui_handler.results_view == self then
+                self.ui_handler.results_view = nil
+            end
+
             if self.ui_handler.current_libraries then
                 self.ui_handler:showLibrariesMenu(
                     self.ui_handler.current_libraries
@@ -577,6 +581,7 @@ function BookResultsView:refresh()
     then
         UIManager:nextTick(function()
             pcall(old_root.free, old_root)
+            collectgarbage("step", 120)
         end)
     end
 end
@@ -923,6 +928,7 @@ Cover handling
 ]]
 
 function UI:prepareBookCovers(books)
+    local changed = false
     local path_ok, path_err =
         util.makePath(COVER_CACHE_DIR)
 
@@ -931,7 +937,7 @@ function UI:prepareBookCovers(books)
             "Jellyfin: Could not create cover cache:",
             tostring(path_err)
         )
-        return
+        return false
     end
 
     for _, book in ipairs(books or {}) do
@@ -940,6 +946,7 @@ function UI:prepareBookCovers(books)
                 and not book._jellyfin_cover_checked
         then
             book._jellyfin_cover_checked = true
+            changed = true
 
             -- Current Jellyfin item queries include Primary image tags.
             -- Avoid a network round-trip for items the server explicitly
@@ -977,15 +984,22 @@ function UI:prepareBookCovers(books)
             end
         end
     end
+
+    return changed
 end
 
 function UI:queuePageCovers(view)
     self.cover_job_id =
         (self.cover_job_id or 0) + 1
 
+    if not NetworkMgr:isOnline() then
+        return
+    end
+
     local job_id = self.cover_job_id
     local books = view:getPageBooks()
     local index = 1
+    local changed = false
 
     local function loadNext()
         if self.cover_job_id ~= job_id
@@ -998,11 +1012,15 @@ function UI:queuePageCovers(view)
         if not book then
             -- Repaint once after the small visible-page batch instead of
             -- rebuilding the e-ink page after every individual cover.
-            view:refresh()
+            if changed then
+                view:refresh()
+            end
             return
         end
 
-        self:prepareBookCovers({ book })
+        if self:prepareBookCovers({ book }) then
+            changed = true
+        end
         index = index + 1
 
         -- Yield between requests so KOReader can process a page change/close
