@@ -266,20 +266,49 @@ function API:downloadBookCover(item_id, filepath)
 end
 
 function API:setPlayedStatus(item_id, played)
-	local endpoint = played and "PlayedItems" or "UnplayedItems"
-	local status_url = self.config:getServerUrl() .. "/Users/" .. self.config:getUserId() ..
-		"/" .. endpoint .. "/" .. item_id
+	local method = played and "POST" or "DELETE"
 
-	local res, code = http.request {
+	-- Current Jellyfin route. The authenticated user is resolved from the
+	-- access token, so no user ID needs to be embedded in the URL.
+	local status_url = self.config:getServerUrl()
+		.. "/UserPlayedItems/" .. item_id
+
+	local _, code = http.request {
 		url = status_url,
-		method = "POST",
+		method = method,
 		headers = {
 			["Authorization"] = self:getAuthHeader(),
 			["Content-Length"] = "0",
 		},
 	}
 
-	return code == 200, code
+	if type(code) == "number" and code >= 200 and code < 300 then
+		return true, code
+	end
+
+	-- Older Jellyfin versions exposed the same operation under the
+	-- user-scoped PlayedItems route. Keep this fallback for compatibility.
+	if code == 404 or code == 405 then
+		local legacy_url = self.config:getServerUrl()
+			.. "/Users/" .. self.config:getUserId()
+			.. "/PlayedItems/" .. item_id
+
+		local _, legacy_code = http.request {
+			url = legacy_url,
+			method = method,
+			headers = {
+				["Authorization"] = self:getAuthHeader(),
+				["Content-Length"] = "0",
+			},
+		}
+
+		return type(legacy_code) == "number"
+			and legacy_code >= 200
+			and legacy_code < 300,
+			legacy_code
+	end
+
+	return false, code
 end
 
 return API
