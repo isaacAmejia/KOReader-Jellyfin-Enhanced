@@ -63,7 +63,19 @@ local function sanitizeFilename(name, fallback)
     return name
 end
 
-local function itemExtension(book)
+local AUDIO_EXTENSIONS = {
+    mp3 = true,
+    m4a = true,
+    m4b = true,
+    ogg = true,
+    opus = true,
+    flac = true,
+    wav = true,
+    aac = true,
+    wma = true,
+}
+
+local function itemPath(book)
     local path = book and book.Path
 
     if (not path or path == "")
@@ -74,12 +86,33 @@ local function itemExtension(book)
         path = book.MediaSources[1].Path
     end
 
+    return path
+end
+
+local function itemExtension(book)
+    local path = itemPath(book)
     local ext = path and path:match("%.([^./\\]+)$")
+
     if ext and #ext <= 12 then
         return "." .. ext:lower()
     end
 
-    return book and book.Type == "AudioBook" and ".m4b" or ".epub"
+    if book and (book.Type == "AudioBook" or book.Type == "Audio") then
+        return ".m4b"
+    end
+
+    return ".epub"
+end
+
+local function isAudiobook(book)
+    if not book then return false end
+
+    if book.Type == "AudioBook" or book.Type == "Audio" then
+        return true
+    end
+
+    local ext = itemExtension(book):match("^%.(.+)$")
+    return ext and AUDIO_EXTENSIONS[ext] or false
 end
 
 local COVER_CACHE_DIR = DataStorage:getDataDir() .. "/jellyfin_covers"
@@ -1446,7 +1479,7 @@ function UI:downloadBook(book)
 
         local download_dir
 
-        if book.Type == "AudioBook" then
+        if isAudiobook(book) then
             download_dir =
                 DataStorage:getDataDir()
                 .. "/books/AudioBooks/"
@@ -1503,7 +1536,7 @@ function UI:downloadBook(book)
                     book.Name
                 )
 
-                if book.Type == "AudioBook" then
+                if isAudiobook(book) then
                     logger.info("Jellyfin: Audiobook detected.")
 
                     local sdr_directory =
