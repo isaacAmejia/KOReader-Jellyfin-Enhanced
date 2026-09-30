@@ -1,0 +1,199 @@
+# KOReader Jellyfin Enhanced
+
+A KOReader plugin for browsing and downloading **ebooks and audiobooks from your own Jellyfin server**.
+
+This project is an enhanced fork of [KOReader-Jellyfin-Plugin](https://github.com/DeclanChidlow/KOReader-Jellyfin-Plugin) by Declan Chidlow (Vale). It keeps the original Jellyfin login and reading-status features while adding a more complete on-device library experience.
+
+> This project is not affiliated with or endorsed by Jellyfin or KOReader.
+
+## What it does
+
+From KOReader you can:
+
+- connect to your own Jellyfin server
+- log in with username/password or Jellyfin Quick Connect
+- browse Jellyfin book libraries
+- see cover art, title, author, and description
+- search a library
+- page through results in an e-reader-friendly layout
+- mark items read or unread in Jellyfin
+- download ebooks to `books/eBooks/`
+- download audiobooks to `books/AudioBooks/`
+- save audiobook artwork as `<book>.sdr/cover.jpg`
+- launch **Jellyfin: Browse Books** from KOReader's Dispatcher/gesture system
+
+## Ebooks vs. audiobooks
+
+### Ebooks
+
+Ebooks work with this plugin by itself. After an ebook downloads, KOReader can open it normally if the file format is supported by KOReader.
+
+### Audiobooks
+
+This plugin downloads audiobook files and cover art, but it does **not** contain an audio player.
+
+For a library-style audiobook experience, install the companion [KOReader Audiobook Bridge](https://github.com/isaacAmejia/KOReader-Audiobook-Bridge) and **Audiobook Read-Along**.
+
+The resulting flow is:
+
+```text
+Jellyfin
+   ↓
+KOReader Jellyfin Enhanced
+   ↓
+books/AudioBooks/My Book.m4b
+books/AudioBooks/My Book.sdr/cover.jpg
+   ↓
+KOReader Audiobook Bridge
+   ↓
+Audiobook Read-Along
+```
+
+## Requirements
+
+- KOReader
+- network access from the device to your Jellyfin server
+- a Jellyfin account that can access one or more book libraries
+
+Development and initial testing are based on KOReader `v2026.07.1`. The plugin uses KOReader data paths rather than Kindle-specific filesystem locations, so it is intended to be portable across KOReader platforms.
+
+## Installation
+
+Copy the folder:
+
+```text
+jellyfin.koplugin/
+```
+
+into your KOReader `plugins` directory.
+
+Common locations include:
+
+| Platform | KOReader plugin directory |
+| --- | --- |
+| Kindle | `koreader/plugins/` |
+| Kobo | `.adds/koreader/plugins/` |
+| Linux | `~/.config/koreader/plugins/` |
+| Android | `/sdcard/koreader/plugins/` |
+
+Restart KOReader after installation.
+
+## Configuration
+
+Open:
+
+```text
+Tools → Jellyfin Books
+```
+
+### 1. Configure Server
+
+Choose **Configure Server** and enter the full address of your Jellyfin server, including the protocol.
+
+Examples:
+
+```text
+https://jellyfin.example.com
+http://192.168.1.20:8096
+```
+
+A trailing slash is optional. The plugin removes it automatically.
+
+### 2. Log in
+
+Choose **Login** and use either:
+
+- **Login with Password** — enter your Jellyfin username and password on the device.
+- **Login with Quick Connect** — KOReader displays a code that you approve from another Jellyfin client.
+
+The password itself is not stored by this plugin. After a successful login, Jellyfin returns an access token and user ID that KOReader stores in its normal settings file.
+
+### 3. Browse
+
+Choose **Browse Books**.
+
+The plugin shows Jellyfin libraries whose collection type is `books`. Choose a library to browse its items.
+
+From the library screen you can:
+
+- tap a book to view details
+- use the search icon to search the current library
+- use the arrows at the bottom to move between result pages
+
+### 4. Download
+
+On an item's detail screen choose **Download**.
+
+Downloads are stored under KOReader's data directory:
+
+```text
+books/eBooks/
+books/AudioBooks/
+```
+
+The plugin determines the actual KOReader data directory at runtime; no device-specific base path is hard-coded.
+
+## Gestures, Dispatcher, and SimpleUI
+
+The plugin registers this KOReader Dispatcher action:
+
+```text
+Jellyfin: Browse Books
+```
+
+You can assign that action to a KOReader gesture or another interface that supports Dispatcher actions.
+
+SimpleUI is **optional**. If you use SimpleUI, create a Quick Action using the same Dispatcher action. No SimpleUI source files need to be replaced.
+
+## Audiobook sidecar artwork
+
+When Jellyfin identifies an item as an audiobook, the plugin creates a sidecar directory next to the downloaded file and attempts to save the item's primary Jellyfin image as `cover.jpg`.
+
+Example:
+
+```text
+The Hobbit.m4b
+The Hobbit.sdr/
+└── cover.jpg
+```
+
+Cover download failure does not remove or invalidate the audiobook download.
+
+The companion Audiobook Bridge can expose this sidecar image to compatible KOReader library UIs.
+
+## Privacy and credentials
+
+The repository contains **no server address, username, user ID, access token, or device-specific configuration**.
+
+Your own Jellyfin server URL, user ID, and access token are stored locally by KOReader in its settings. Treat your KOReader settings file as sensitive and do not post it publicly without removing credentials first.
+
+The plugin deliberately avoids logging full Jellyfin request URLs so routine logs do not unnecessarily expose your server hostname or Jellyfin user ID.
+
+## Troubleshooting
+
+### Browse Books is disabled
+
+You are not currently authenticated. Configure the server and log in first.
+
+### No libraries appear
+
+This plugin currently browses Jellyfin libraries reported with the `books` collection type. Confirm the library is configured as a Books library in Jellyfin and that your user can access it.
+
+### Login fails
+
+Check that:
+
+- the server URL includes `http://` or `https://`
+- the KOReader device can reach the server
+- the account credentials are correct
+- Quick Connect is enabled on the Jellyfin server if you are using it
+
+### Audiobooks download but do not open
+
+Audio playback is outside this plugin's scope. Install Audiobook Read-Along and the companion KOReader Audiobook Bridge.
+
+## Attribution and license
+
+This is a modified version of **KOReader-Jellyfin-Plugin** by Declan Chidlow (Vale).
+
+The original project is licensed under the **GNU Affero General Public License v3.0**, and this enhanced fork remains under the same license. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
