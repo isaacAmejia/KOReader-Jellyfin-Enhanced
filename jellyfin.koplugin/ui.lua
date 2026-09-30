@@ -710,18 +710,10 @@ function UI:getBookLibraries()
             result
         )
 
-        if result == "parse_error" then
-            UIManager:show(InfoMessage:new {
-                text = _("Failed to parse server response"),
-            })
-        else
-            UIManager:show(InfoMessage:new {
-                text = T(
-                    _("Failed to load libraries (code %1)"),
-                    result
-                ),
-            })
-        end
+        self:handleApiError(
+            result,
+            _("Failed to load libraries")
+        )
     end
 end
 
@@ -739,6 +731,7 @@ function UI:showLibrariesMenu(libraries)
     for _, lib in ipairs(libraries) do
         table.insert(items, {
             text = lib.Name,
+            library = lib,
         })
     end
 
@@ -759,22 +752,20 @@ function UI:showLibrariesMenu(libraries)
 
             UIManager:close(menu_widget)
 
-            for _, lib in ipairs(self.current_libraries) do
-                if lib.Name == choice.text then
-                    logger.info(
-                        "Jellyfin: Library selected:",
-                        lib.Name,
-                        "ID:",
-                        lib.Id
-                    )
+            local lib = choice.library
 
-                    self:showBooksInLibrary(
-                        lib.Id,
-                        lib.Name
-                    )
+            if lib then
+                logger.info(
+                    "Jellyfin: Library selected:",
+                    lib.Name,
+                    "ID:",
+                    lib.Id
+                )
 
-                    break
-                end
+                self:showBooksInLibrary(
+                    lib.Id,
+                    lib.Name
+                )
             end
         end,
     }
@@ -1217,7 +1208,9 @@ function UI:showBookDetails(book)
     -- Read / unread button
     ----------------------------------------------------------------
 
-    local read_button = Button:new {
+    local read_button
+
+    read_button = Button:new {
         text =
             book.UserData
             and book.UserData.Played
@@ -1225,7 +1218,10 @@ function UI:showBookDetails(book)
             or _("Mark as Read"),
 
         callback = function()
-            self:toggleReadStatus(book)
+            self:toggleReadStatus(
+                book,
+                read_button
+            )
         end,
     }
 
@@ -1681,7 +1677,7 @@ end
 Existing read/unread functionality
 ]]
 
-function UI:toggleReadStatus(book)
+function UI:toggleReadStatus(book, read_button)
     logger.info(
         "Jellyfin: Toggling read status for book:",
         book.Name
@@ -1706,6 +1702,23 @@ function UI:toggleReadStatus(book)
         if success then
             book.UserData = book.UserData or {}
             book.UserData.Played = not is_played
+
+            if read_button then
+                local new_text =
+                    book.UserData.Played
+                    and _("Mark as Unread")
+                    or _("Mark as Read")
+
+                read_button:setText(
+                    new_text,
+                    read_button.width
+                )
+                read_button:refresh()
+            end
+
+            if self.results_view then
+                self.results_view:refresh()
+            end
 
             UIManager:show(InfoMessage:new {
                 text =
