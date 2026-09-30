@@ -1629,6 +1629,7 @@ function UI:downloadBook(book)
             if not ok_download then
                 error = tostring(success)
                 success = false
+                os.remove(filepath)
                 logger.err(
                     "Jellyfin: Download raised an error:",
                     error
