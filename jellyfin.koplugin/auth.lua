@@ -168,7 +168,7 @@ function Auth:pollQuickConnect(secret, dialog)
 			UIManager:close(dialog)
 			self:completeQuickConnect(secret)
 		else
-			UIManager:scheduleIn(2, function()
+			UIManager:scheduleIn(3, function()
 				if dialog and not dialog._jellyfin_qc_cancelled then
 					self:pollQuickConnect(secret, dialog)
 				end
