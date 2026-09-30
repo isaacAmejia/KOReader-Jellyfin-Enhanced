@@ -1941,11 +1941,35 @@ function UI:downloadBook(book)
                     util.makePath(sdr_directory)
 
                 if sdr_ok then
-                    local cover_success, cover_error =
-                        self.api:downloadBookCover(
-                            book.Id,
-                            cover_filepath
-                        )
+                    local cover_success = false
+                    local cover_error
+
+                    -- The visible library/details screen normally cached this
+                    -- exact 320px Jellyfin cover already. Reuse it instead of
+                    -- making a second network request for the sidecar.
+                    if book.cover_path
+                            and util.fileExists(book.cover_path)
+                    then
+                        local copy_error =
+                            FFIUtil.copyFile(
+                                book.cover_path,
+                                cover_filepath
+                            )
+
+                        if copy_error == nil then
+                            cover_success = true
+                        else
+                            cover_error = copy_error
+                        end
+                    end
+
+                    if not cover_success then
+                        cover_success, cover_error =
+                            self.api:downloadBookCover(
+                                book.Id,
+                                cover_filepath
+                            )
+                    end
 
                     if not cover_success then
                         logger.warn(
