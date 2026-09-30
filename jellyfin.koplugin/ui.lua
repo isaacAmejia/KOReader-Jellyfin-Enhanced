@@ -653,13 +653,18 @@ function UI:handleApiError(error_code, default_msg)
             text = _("Failed to parse server response."),
         })
 
-    else
+    elseif error_code then
         UIManager:show(InfoMessage:new {
             text = T(
                 _("%1 (code %2)"),
                 default_msg,
                 error_code
             ),
+        })
+
+    else
+        UIManager:show(InfoMessage:new {
+            text = default_msg,
         })
     end
 end
@@ -1629,7 +1634,7 @@ function UI:downloadBook(book)
             if not ok_download then
                 error = tostring(success)
                 success = false
-                os.remove(filepath)
+                os.remove(filepath .. ".part")
                 logger.err(
                     "Jellyfin: Download raised an error:",
                     error
