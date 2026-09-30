@@ -573,11 +573,13 @@ function BookResultsView:refresh()
 
     self:build()
 
-    -- This is ordinary monochrome UI, not image content that requires a
-    -- flashing full waveform. The lighter UI refresh is much cheaper on e-ink.
+    -- Monochrome e-ink can use the cheaper UI waveform. Color e-ink needs
+    -- KOReader's full refresh path to avoid degrading cover artwork.
     UIManager:setDirty(
         self,
-        "ui"
+        Screen:isColorEnabled()
+            and "full"
+            or "ui"
     )
 
     -- Page/search changes replace the complete widget subtree. Defer freeing
