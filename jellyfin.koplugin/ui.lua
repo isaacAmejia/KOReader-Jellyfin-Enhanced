@@ -165,6 +165,7 @@ local COVER_CACHE_DIR = DataStorage:getDataDir() .. "/jellyfin_covers"
 local COVER_CACHE_KEEP = 120
 local COVER_CACHE_PRUNE_AT = 160
 local BOOKS_PER_PAGE = 5
+local BOOK_BATCH_SIZE = 40
 
 local Screen = Device.screen
 
@@ -357,14 +358,17 @@ function BookResultsView:init()
 end
 
 function BookResultsView:getPageCount()
-    if #self.books == 0 then
+    local total =
+        self.total_count or #self.books
+
+    if total <= 0 then
         return 1
     end
 
     local per_page =
         self.books_per_page or BOOKS_PER_PAGE
 
-    return math.ceil(#self.books / per_page)
+    return math.ceil(total / per_page)
 end
 
 function BookResultsView:getPageBooks()
@@ -590,9 +594,16 @@ function BookResultsView:refresh()
     end
 end
 
-function BookResultsView:setBooks(books, search_term)
+function BookResultsView:setBooks(
+    books,
+    search_term,
+    total_count
+)
     self.books = books or {}
     self.search_term = search_term
+    self.total_count =
+        total_count or #self.books
+    self.loading_more = false
     self.page = 1
 
     self:refresh()
@@ -614,7 +625,23 @@ function BookResultsView:nextPage()
         return
     end
 
-    self.page = self.page + 1
+    local target_page = self.page + 1
+    local per_page =
+        self.books_per_page or BOOKS_PER_PAGE
+    local target_first_index =
+        ((target_page - 1) * per_page) + 1
+
+    if target_first_index > #self.books
+            and #self.books < (self.total_count or #self.books)
+    then
+        self.ui_handler:loadMoreBooks(
+            self,
+            target_page
+        )
+        return
+    end
+
+    self.page = target_page
     self:refresh()
     self.ui_handler:queuePageCovers(self)
 end
@@ -886,7 +913,12 @@ function UI:showBooksInLibrary(library_id, library_name)
     })
 
     local success, result =
-        self.api:getItemsInLibrary(library_id)
+        self.api:getItemsInLibrary(
+            library_id,
+            nil,
+            0,
+            BOOK_BATCH_SIZE
+        )
 
     if success then
         local items = type(result) == "table"
@@ -912,7 +944,9 @@ function UI:showBooksInLibrary(library_id, library_name)
             self:showBooksMenu(
                 items,
                 library_name,
-                library_id
+                library_id,
+                nil,
+                total
             )
         end
 
@@ -1097,11 +1131,96 @@ function UI:queuePageCovers(view)
     UIManager:scheduleIn(0.05, loadNext)
 end
 
+function UI:loadMoreBooks(view, target_page)
+    if view.loading_more
+            or self.results_view ~= view
+    then
+        return
+    end
+
+    view.loading_more = true
+
+    NetworkMgr:runWhenOnline(function()
+        UIManager:show(InfoMessage:new {
+            text = _("Loading more books..."),
+            timeout = 1,
+        })
+
+        UIManager:scheduleIn(0.05, function()
+            if self.results_view ~= view then
+                view.loading_more = false
+                return
+            end
+
+            local success, result =
+                self.api:getItemsInLibrary(
+                    view.library_id,
+                    view.search_term,
+                    #view.books,
+                    BOOK_BATCH_SIZE
+                )
+
+            view.loading_more = false
+
+            if not success then
+                self:handleApiError(
+                    result,
+                    _("Failed to load more books")
+                )
+                return
+            end
+
+            local items =
+                type(result) == "table"
+                and type(result.Items) == "table"
+                and result.Items
+                or {}
+
+            local server_total =
+                type(result) == "table"
+                and tonumber(result.TotalRecordCount)
+                or nil
+
+            if server_total then
+                view.total_count = server_total
+            end
+
+            if #items == 0 then
+                -- Prevent repeatedly requesting beyond what the server
+                -- actually returned if its total count changed meanwhile.
+                view.total_count = #view.books
+                view:refresh()
+                return
+            end
+
+            for _, book in ipairs(items) do
+                view.books[#view.books + 1] = book
+            end
+
+            self.current_books = view.books
+
+            local per_page =
+                view.books_per_page
+                or BOOKS_PER_PAGE
+            local target_first_index =
+                ((target_page - 1) * per_page) + 1
+
+            if target_first_index <= #view.books then
+                view.page = target_page
+            end
+
+            view:refresh()
+            self:queuePageCovers(view)
+        end)
+    end)
+end
+
 function UI:showBooksMenu(
     books,
     library_name,
     library_id,
-    search_term
+    search_term,
+    total_count
 )
     logger.info(
         "Jellyfin: Showing books menu with",
@@ -1127,6 +1246,8 @@ function UI:showBooksMenu(
         library_id = library_id,
         library_name = library_name,
         search_term = search_term,
+        total_count = total_count or #books,
+        loading_more = false,
         page = 1,
     }
 
@@ -1185,7 +1306,9 @@ function UI:searchBooks(
                             local success, result =
                                 self.api:getItemsInLibrary(
                                     library_id,
-                                    search_term
+                                    search_term,
+                                    0,
+                                    BOOK_BATCH_SIZE
                                 )
 
                             if success then
@@ -1229,14 +1352,16 @@ function UI:searchBooks(
                                 if existing_view then
                                     existing_view:setBooks(
                                         items,
-                                        search_term
+                                        search_term,
+                                        total
                                     )
                                 else
                                     self:showBooksMenu(
                                         items,
                                         library_name,
                                         library_id,
-                                        search_term
+                                        search_term,
+                                        total
                                     )
                                 end
 
