@@ -19,6 +19,8 @@ function Config:setServerUrl(url)
 	-- after the user points the plugin at a different Jellyfin server.
 	if previous ~= "" and previous ~= url then
 		self:clearAuth()
+	elseif G_reader_settings.flush then
+		G_reader_settings:flush()
 	end
 end
 
