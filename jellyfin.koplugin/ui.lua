@@ -1157,7 +1157,8 @@ function UI:loadMoreBooks(view, target_page)
                     view.library_id,
                     view.search_term,
                     #view.books,
-                    BOOK_BATCH_SIZE
+                    BOOK_BATCH_SIZE,
+                    false
                 )
 
             view.loading_more = false
