@@ -569,9 +569,11 @@ function BookResultsView:refresh()
 
     self:build()
 
+    -- This is ordinary monochrome UI, not image content that requires a
+    -- flashing full waveform. The lighter UI refresh is much cheaper on e-ink.
     UIManager:setDirty(
         self,
-        "full"
+        "ui"
     )
 
     -- Page/search changes replace the complete widget subtree. Defer freeing
