@@ -1177,15 +1177,8 @@ function UI:loadMoreBooks(view, target_page)
                 and result.Items
                 or {}
 
-            local server_total =
-                type(result) == "table"
-                and tonumber(result.TotalRecordCount)
-                or nil
-
-            if server_total then
-                view.total_count = server_total
-            end
-
+            -- The first batch owns the authoritative total count. Continuation
+            -- batches deliberately disable counting to save server/device work.
             if #items == 0 then
                 -- Prevent repeatedly requesting beyond what the server
                 -- actually returned if its total count changed meanwhile.
