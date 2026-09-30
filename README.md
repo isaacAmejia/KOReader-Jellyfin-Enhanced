@@ -55,7 +55,9 @@ Audiobook Read-Along
 - network access from the device to your Jellyfin server
 - a Jellyfin account that can access one or more book libraries
 
-Development and initial testing are based on KOReader `v2026.07.1`. The plugin uses KOReader data paths rather than Kindle-specific filesystem locations, so it is intended to be portable across KOReader platforms.
+The current development branch has been source-audited against **KOReader v2026.07.1**, the latest KOReader release at the time of this compatibility pass. It has also been checked against **Jellyfin Server v12.1** API routes. The plugin keeps fallbacks for older Jellyfin user-view, item-listing, and played-state endpoints.
+
+The plugin uses KOReader data-directory APIs rather than Kindle-specific filesystem locations, so it is intended to be portable across KOReader platforms. A clean-device runtime test is still recommended before treating a development build as a release.
 
 ## Installation
 
@@ -119,10 +121,13 @@ From the library screen you can:
 - tap a book to view details
 - use the search icon to search the current library
 - use the arrows at the bottom to move between result pages
+- load cover artwork only for the page being viewed, avoiding a long all-library cover download on large libraries
 
 ### 4. Download
 
 On an item's detail screen choose **Download**.
+
+A dedicated download dialog appears before the transfer starts. When Jellyfin supplies the media size, the dialog shows live byte progress; otherwise it remains visible as an indeterminate download screen until the transfer finishes.
 
 Downloads are stored under KOReader's data directory:
 
