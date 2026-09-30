@@ -557,12 +557,26 @@ function BookResultsView:build()
 end
 
 function BookResultsView:refresh()
+    local old_root = self[1]
+
     self:build()
 
     UIManager:setDirty(
         self,
         "full"
     )
+
+    -- Page/search changes replace the complete widget subtree. Defer freeing
+    -- the previous tree until the current input/paint cycle has completed so
+    -- repeated browsing does not retain old cover/text widgets.
+    if old_root
+            and old_root ~= self[1]
+            and type(old_root.free) == "function"
+    then
+        UIManager:nextTick(function()
+            pcall(old_root.free, old_root)
+        end)
+    end
 end
 
 function BookResultsView:setBooks(books, search_term)
