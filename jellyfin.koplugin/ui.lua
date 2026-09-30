@@ -11,6 +11,7 @@ local util = require("util")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
 local Menu = require("ui/widget/menu")
+local ProgressbarDialog = require("ui/widget/progressbardialog")
 local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
 local FFIUtil = require("ffi/util")
@@ -663,15 +664,20 @@ function UI:getBookLibraries()
     local success, result = self.api:getUserViews()
 
     if success then
+        local items = type(result) == "table"
+            and type(result.Items) == "table"
+            and result.Items
+            or {}
+
         logger.info(
             "Jellyfin: Response has",
-            #result.Items,
+            #items,
             "total items"
         )
 
         local book_libraries = {}
 
-        for _, item in ipairs(result.Items) do
+        for _, item in ipairs(items) do
             logger.info(
                 "Jellyfin: Found library:",
                 item.Name,
@@ -793,19 +799,28 @@ function UI:showBooksInLibrary(library_id, library_name)
         self.api:getItemsInLibrary(library_id)
 
     if success then
+        local items = type(result) == "table"
+            and type(result.Items) == "table"
+            and result.Items
+            or {}
+        local total = type(result) == "table"
+            and tonumber(result.TotalRecordCount)
+            or nil
+        total = total or #items
+
         logger.info(
             "Jellyfin: Found",
-            result.TotalRecordCount,
+            total,
             "books"
         )
 
-        if result.TotalRecordCount == 0 then
+        if #items == 0 then
             UIManager:show(InfoMessage:new {
                 text = _("No books found in this library"),
             })
         else
             self:showBooksMenu(
-                result.Items,
+                items,
                 library_name,
                 library_id
             )
@@ -956,13 +971,22 @@ function UI:searchBooks(
                                 )
 
                             if success then
+                                local items = type(result) == "table"
+                                    and type(result.Items) == "table"
+                                    and result.Items
+                                    or {}
+                                local total = type(result) == "table"
+                                    and tonumber(result.TotalRecordCount)
+                                    or nil
+                                total = total or #items
+
                                 logger.info(
                                     "Jellyfin: Search found",
-                                    result.TotalRecordCount,
+                                    total,
                                     "books"
                                 )
 
-                                if result.TotalRecordCount == 0 then
+                                if #items == 0 then
                                     UIManager:show(
                                         InfoMessage:new {
                                             text = T(
@@ -975,20 +999,20 @@ function UI:searchBooks(
                                     return
                                 end
 
-                                self.current_books = result.Items
+                                self.current_books = items
 
                                 self:prepareBookCovers(
-                                    result.Items
+                                    items
                                 )
 
                                 if existing_view then
                                     existing_view:setBooks(
-                                        result.Items,
+                                        items,
                                         search_term
                                     )
                                 else
                                     self:showBooksMenu(
-                                        result.Items,
+                                        items,
                                         library_name,
                                         library_id,
                                         search_term
@@ -1489,7 +1513,20 @@ function UI:downloadBook(book)
                 .. "/books/eBooks/"
         end
 
-        util.makePath(download_dir)
+        local path_ok, path_err = util.makePath(download_dir)
+        if not path_ok then
+            logger.err(
+                "Jellyfin: Could not create download directory:",
+                tostring(path_err)
+            )
+            UIManager:show(InfoMessage:new {
+                text = T(
+                    _("Could not create the download folder:\n%1"),
+                    download_dir
+                ),
+            })
+            return
+        end
 
         local filepath =
             download_dir .. filename
@@ -1499,55 +1536,73 @@ function UI:downloadBook(book)
             filepath
         )
 
-        UIManager:show(InfoMessage:new {
-            text = T(
-                _("Downloading %1..."),
-                book.Name
-            ),
-            timeout = 2,
-        })
+        local media_source =
+            type(book.MediaSources) == "table"
+            and book.MediaSources[1]
+            or nil
+        local expected_size =
+            media_source
+            and tonumber(media_source.Size)
+            or nil
 
-        logger.info(
-            "Jellyfin: Calling API downloadItem..."
-        )
+        local progress_dialog = ProgressbarDialog:new {
+            title = _("Downloading"),
+            subtitle = book.Name or filename,
+            progress_max =
+                expected_size
+                and expected_size > 0
+                and expected_size
+                or nil,
+            refresh_time_seconds = 0.5,
+            dismissable = false,
+        }
 
-        local success, error =
-            self.api:downloadItem(
-                book.Id,
-                filepath
-            )
+        progress_dialog:show()
 
-        logger.info(
-            "Jellyfin: downloadItem returned. Success:",
-            success,
-            "Error:",
-            error or "none"
-        )
-
-        if success then
-            logger.info(
-                "Jellyfin: Download completed successfully:",
-                filepath
-            )
-
-            UIManager:nextTick(function()
-                logger.info(
-                    "Jellyfin: Processing post-download UI for:",
-                    book.Name
+        -- The transfer is synchronous. Delay it briefly so KOReader gets a
+        -- chance to paint the download dialog before the socket starts
+        -- blocking the normal event loop.
+        UIManager:scheduleIn(0.1, function()
+            local ok_download, success, error =
+                pcall(
+                    self.api.downloadItem,
+                    self.api,
+                    book.Id,
+                    filepath,
+                    function(downloaded)
+                        if expected_size and expected_size > 0 then
+                            progress_dialog:reportProgress(
+                                math.min(downloaded, expected_size)
+                            )
+                        end
+                    end
                 )
 
-                if isAudiobook(book) then
-                    logger.info("Jellyfin: Audiobook detected.")
+            if not ok_download then
+                success = false
+                error = tostring(success or error)
+                logger.err(
+                    "Jellyfin: Download raised an error:",
+                    tostring(error)
+                )
+            end
 
-                    local sdr_directory =
-                        filepath:gsub("%.[^%.]+$", ".sdr")
-                    local cover_filepath =
-                        sdr_directory .. "/cover.jpg"
+            if success and expected_size and expected_size > 0 then
+                progress_dialog:reportProgress(expected_size)
+            end
 
-                    -- Create the sidecar ourselves instead of relying on a
-                    -- specific device, library UI, or timing behavior.
+            if success and isAudiobook(book) then
+                logger.info("Jellyfin: Audiobook detected.")
+
+                local sdr_directory =
+                    filepath:gsub("%.[^%.]+$", ".sdr")
+                local cover_filepath =
+                    sdr_directory .. "/cover.jpg"
+
+                local sdr_ok, sdr_err =
                     util.makePath(sdr_directory)
 
+                if sdr_ok then
                     local cover_success, cover_error =
                         self.api:downloadBookCover(
                             book.Id,
@@ -1560,54 +1615,68 @@ function UI:downloadBook(book)
                             cover_error
                         )
                     end
-
-                    UIManager:show(InfoMessage:new {
-                        text = T(
-                            _("Audiobook downloaded to:\n%1"),
-                            filepath
-                        ),
-                    })
-
                 else
-                    logger.info(
-                        "Jellyfin: Book detected, showing open prompt."
+                    logger.warn(
+                        "Jellyfin: Audiobook downloaded, but sidecar directory creation failed:",
+                        tostring(sdr_err)
                     )
-
-                    UIManager:show(ConfirmBox:new {
-                        text = T(
-                            _("Book downloaded to:\n%1\n\nOpen now?"),
-                            filepath
-                        ),
-
-                        ok_callback = function()
-                            logger.info(
-                                "Jellyfin: Opening downloaded book:",
-                                filepath
-                            )
-
-                            local ReaderUI =
-                                require("apps/reader/readerui")
-
-                            ReaderUI:showReader(filepath)
-                        end,
-                    })
                 end
-            end)
-        else
-            logger.err(
-                "Jellyfin: Download failed:",
-                error
-            )
+            end
 
-            UIManager:nextTick(function()
-                self:handleApiError(
-                    error,
-                    _("Failed to download book")
+            progress_dialog:close()
+
+            if success then
+                logger.info(
+                    "Jellyfin: Download completed successfully:",
+                    filepath
                 )
-            end)
-        end
+
+                UIManager:nextTick(function()
+                    if isAudiobook(book) then
+                        UIManager:show(InfoMessage:new {
+                            text = T(
+                                _("Audiobook downloaded to:\n%1"),
+                                filepath
+                            ),
+                        })
+                    else
+                        UIManager:show(ConfirmBox:new {
+                            text = T(
+                                _("Book downloaded to:\n%1\n\nOpen now?"),
+                                filepath
+                            ),
+
+                            ok_callback = function()
+                                logger.info(
+                                    "Jellyfin: Opening downloaded book:",
+                                    filepath
+                                )
+
+                                local ReaderUI =
+                                    require("apps/reader/readerui")
+
+                                ReaderUI:showReader(filepath)
+                            end,
+                        })
+                    end
+                end)
+            else
+                logger.err(
+                    "Jellyfin: Download failed:",
+                    error
+                )
+
+                UIManager:nextTick(function()
+                    self:handleApiError(
+                        error,
+                        _("Failed to download book")
+                    )
+                end)
+            end
+        end)
     end)
 end
+
 --[[
 Existing read/unread functionality
 ]]
@@ -1635,9 +1704,8 @@ function UI:toggleReadStatus(book)
             )
 
         if success then
-            if book.UserData then
-                book.UserData.Played = not is_played
-            end
+            book.UserData = book.UserData or {}
+            book.UserData.Played = not is_played
 
             UIManager:show(InfoMessage:new {
                 text =
