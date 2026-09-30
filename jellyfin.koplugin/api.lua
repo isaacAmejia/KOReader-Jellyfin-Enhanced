@@ -280,7 +280,7 @@ function API:getUserViews()
     return false, last_error
 end
 
-function API:getItemsInLibrary(library_id, search_term, start_index, limit)
+function API:getItemsInLibrary(library_id, search_term, start_index, limit, include_total_count)
     local server = self.config:getServerUrl()
     local user_id = url.escape(self.config:getUserId())
     local params =
@@ -290,7 +290,8 @@ function API:getItemsInLibrary(library_id, search_term, start_index, limit)
         .. "&Fields=People"
         .. "&IncludeItemTypes=Book,Audio,AudioBook"
         .. "&EnableUserData=true"
-        .. "&EnableTotalRecordCount=true"
+        .. "&EnableTotalRecordCount="
+        .. (include_total_count == false and "false" or "true")
         .. "&EnableImages=true"
         .. "&ImageTypeLimit=1"
         .. "&EnableImageTypes=Primary"
