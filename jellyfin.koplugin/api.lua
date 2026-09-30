@@ -358,10 +358,14 @@ function API:downloadItem(item_id, filepath, progress_callback)
         .. url.escape(item_id or "")
         .. "/Download"
 
-    local file, file_error = io.open(filepath, "wb")
+    -- Never expose an incomplete transfer under the final filename.
+    local temp_path = filepath .. ".part"
+    os.remove(temp_path)
+
+    local file, file_error = io.open(temp_path, "wb")
     if not file then
         logger.warn(
-            "Jellyfin API: Could not create download file:",
+            "Jellyfin API: Could not create temporary download file:",
             tostring(file_error)
         )
         return false, "file_error", 0
@@ -401,18 +405,34 @@ function API:downloadItem(item_id, filepath, progress_callback)
         file:close()
     end
 
-    if isSuccess(code) then
-        local size = 0
-        local reopened = io.open(filepath, "rb")
-        if reopened then
-            size = reopened:seek("end") or 0
-            reopened:close()
-        end
-        return true, nil, size
+    if not isSuccess(code) then
+        os.remove(temp_path)
+        return false, requestError(result, code, status), 0
     end
 
-    os.remove(filepath)
-    return false, requestError(result, code, status), 0
+    local downloaded_size = 0
+    local completed = io.open(temp_path, "rb")
+    if completed then
+        downloaded_size = completed:seek("end") or 0
+        completed:close()
+    end
+
+    -- On the Unix-like platforms supported by KOReader, rename is atomic
+    -- when source and destination are on the same filesystem. The temp file
+    -- lives beside the final file specifically to preserve that property.
+    local renamed, rename_error =
+        os.rename(temp_path, filepath)
+
+    if not renamed then
+        logger.warn(
+            "Jellyfin API: Could not finalize download:",
+            tostring(rename_error)
+        )
+        os.remove(temp_path)
+        return false, "file_error", downloaded_size
+    end
+
+    return true, nil, downloaded_size
 end
 
 function API:downloadBookCover(item_id, filepath)
