@@ -76,12 +76,19 @@ function Config:initialize()
 	end
 
 	if not G_reader_settings:readSetting("jellyfin_device_id") then
-		-- Migrate the key used by earlier versions without continuing to
-		-- share a generic setting name with unrelated KOReader plugins.
-		local previous_id = G_reader_settings:readSetting("device_id")
-		local device_id = previous_id
-			or ("koreader_" .. os.time() .. "_" .. math.random(1000, 9999))
-		G_reader_settings:saveSetting("jellyfin_device_id", device_id)
+		-- KOReader itself maintains a stable random UUID in "device_id".
+		-- Reuse it for new installs instead of generating a weaker timestamp ID.
+		local device_id =
+			G_reader_settings:readSetting("device_id")
+
+		if not device_id or device_id == "" then
+			device_id = require("random").uuid()
+		end
+
+		G_reader_settings:saveSetting(
+			"jellyfin_device_id",
+			device_id
+		)
 	end
 
 	if G_reader_settings.flush then
