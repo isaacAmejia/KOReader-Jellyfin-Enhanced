@@ -430,7 +430,7 @@ function API:downloadItem(item_id, filepath, progress_callback)
     local file_sink = socketutil.file_sink(file)
     local downloaded_size = 0
     local last_progress_report = 0
-    local progress_step = 256 * 1024
+    local progress_step = 512 * 1024
 
     -- Avoid running a Lua callback for every small network chunk. On slower
     -- e-readers that can become surprisingly expensive during large M4B
@@ -508,7 +508,10 @@ function API:downloadBookCover(item_id, filepath)
         .. url.escape(item_id or "")
         .. "/Images/Primary?maxWidth=320&quality=85&format=Jpg"
 
-    local file, file_error = io.open(filepath, "wb")
+    local temp_path = filepath .. ".part"
+    os.remove(temp_path)
+
+    local file, file_error = io.open(temp_path, "wb")
     if not file then
         logger.warn(
             "Jellyfin API: Could not create cover file:",
@@ -531,12 +534,24 @@ function API:downloadBookCover(item_id, filepath)
         file:close()
     end
 
-    if isSuccess(code) then
-        return true
+    if not isSuccess(code) then
+        os.remove(temp_path)
+        return false, requestError(result, code, status)
     end
 
-    os.remove(filepath)
-    return false, requestError(result, code, status)
+    local renamed, rename_error =
+        os.rename(temp_path, filepath)
+
+    if not renamed then
+        logger.warn(
+            "Jellyfin API: Could not finalize cover:",
+            tostring(rename_error)
+        )
+        os.remove(temp_path)
+        return false, "file_error"
+    end
+
+    return true
 end
 
 function API:setPlayedStatus(item_id, played)
