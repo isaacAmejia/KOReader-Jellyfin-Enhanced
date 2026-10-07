@@ -113,8 +113,8 @@ function API:authenticateByPassword(username, password)
         .. "/Users/AuthenticateByName"
 
     local auth_data = json.encode({
-        Username = username,
-        Pw = password,
+        Username = username or "",
+        Pw = password or "",
     })
 
     local response_body = {}
