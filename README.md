@@ -61,7 +61,7 @@ The plugin uses KOReader data-directory APIs rather than Kindle-specific filesys
 
 ### Low-resource design
 
-The browser is designed for slower e-readers: Jellyfin results are fetched in 40-item batches, full item metadata is loaded only for the selected book, covers are fetched only for the visible page, and the local thumbnail cache is bounded. Networking and the larger browser UI are also loaded only when the plugin is actually used.
+The browser is designed for slower e-readers: Jellyfin results are fetched in 40-item batches, full item metadata is loaded only for the selected book, covers are fetched only for the visible page, and the local thumbnail cache is bounded. The browser still minimizes runtime work through batched results, lazy per-item metadata, visible-page cover loading, and bounded caches. The core API/auth/UI modules intentionally load at plugin startup to preserve the official Jellyfin plugin's proven KOReader networking initialization behavior.
 
 ## Installation
 
