@@ -11,6 +11,7 @@ This project is an enhanced fork of [KOReader-Jellyfin-Plugin](https://github.co
 From KOReader you can:
 
 - connect to your own Jellyfin server
+- optionally prefer a local Jellyfin address at home and fall back to an external address away from home
 - log in with username/password or Jellyfin Quick Connect
 - browse Jellyfin book libraries
 - see cover art, title, author, and description
@@ -92,18 +93,25 @@ Open:
 Tools → Jellyfin Books
 ```
 
-### 1. Configure Server
+### 1. Configure Server Addresses
 
-Choose **Configure Server** and enter the full address of your Jellyfin server, including the protocol.
+Choose **Server Addresses**.
 
-Examples:
+The **external URL** is required and should be the address that works away from home, for example:
 
 ```text
 https://jellyfin.example.com
+```
+
+The **local URL** is optional. If supplied, the plugin briefly checks whether that address is reachable and prefers it when available:
+
+```text
 http://192.168.1.20:8096
 ```
 
-A trailing slash is optional. The plugin removes it automatically.
+When the local address is not reachable, the plugin automatically uses the external address instead. This is useful on networks where the public Jellyfin hostname does not work from inside the LAN because the router lacks working NAT loopback/hairpin NAT.
+
+The route decision is cached briefly to avoid repeatedly probing the local address on low-power devices. A trailing slash is optional; the plugin removes it automatically.
 
 ### 2. Log in
 
@@ -192,7 +200,7 @@ This plugin currently browses Jellyfin libraries reported with the `books` colle
 
 Check that:
 
-- the server URL includes `http://` or `https://`
+- both configured server URLs include `http://` or `https://`
 - the KOReader device can reach the server
 - the account credentials are correct
 - Quick Connect is enabled on the Jellyfin server if you are using it
