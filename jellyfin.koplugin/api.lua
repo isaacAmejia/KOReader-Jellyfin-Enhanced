@@ -5,7 +5,6 @@ Jellyfin API client
 
 local http = require("socket.http")
 local ltn12 = require("ltn12")
-local socketutil = require("socketutil")
 local url = require("socket.url")
 local logger = require("logger")
 
@@ -42,36 +41,15 @@ local function requestError(result, code, status)
     return "network_error"
 end
 
-local function performRequest(request, is_file_transfer)
-    request.headers = request.headers or {}
-    if request.headers["Accept-Encoding"] == nil
-            and request.headers["accept-encoding"] == nil
-    then
-        request.headers["Accept-Encoding"] = "identity"
-    end
-
-    -- KOReader routes both HTTP and HTTPS through socket.http.request().
-    -- Its socketutil module patches LuaSocket/LuaSec underneath so the same
-    -- timeout and TLS behavior is used consistently across built-in plugins.
+local function performRequest(request)
+    -- Keep the actual transport identical to the original Jellyfin plugin:
+    -- socket.http.request() handles both HTTP and HTTPS in KOReader.
     --
-    -- Using ssl.https.request() directly here caused timeouts on slower
-    -- e-readers/reverse-proxied Jellyfin servers even though the same URL
-    -- worked through KOReader's normal network stack.
-    if is_file_transfer then
-        socketutil:set_timeout(
-            socketutil.FILE_BLOCK_TIMEOUT,
-            -1
-        )
-    else
-        -- Authentication may include DNS + TLS + reverse-proxy negotiation.
-        -- Favor reliability over an aggressive timeout on low-power devices.
-        socketutil:set_timeout(30, 60)
-    end
-
+    -- Do not change KOReader's global socket timeouts here. On older/low-power
+    -- Kindle builds, doing so caused otherwise-working Jellyfin requests to
+    -- stall until the imposed timeout expired.
     local ok_request, result, code, headers, status =
         pcall(http.request, request)
-
-    socketutil:reset_timeout()
 
     if not ok_request then
         logger.warn(
@@ -128,7 +106,7 @@ function API:authenticateByPassword(username, password)
             ["Authorization"] = self:getAuthHeader(),
         },
         source = ltn12.source.string(auth_data),
-        sink = socketutil.table_sink(response_body),
+        sink = ltn12.sink.table(response_body),
     })
 
     if isSuccess(code) then
@@ -160,7 +138,7 @@ function API:initiateQuickConnect()
             ["Authorization"] = self:getAuthHeader(),
             ["Content-Length"] = "0",
         },
-        sink = socketutil.table_sink(response_body),
+        sink = ltn12.sink.table(response_body),
     })
 
     if isSuccess(code) then
@@ -188,7 +166,7 @@ function API:checkQuickConnect(secret)
         headers = {
             ["Authorization"] = self:getAuthHeader(),
         },
-        sink = socketutil.table_sink(response_body),
+        sink = ltn12.sink.table(response_body),
     })
 
     if isSuccess(code) then
@@ -222,7 +200,7 @@ function API:authenticateWithQuickConnect(secret)
             ["Authorization"] = self:getAuthHeader(),
         },
         source = ltn12.source.string(auth_data),
-        sink = socketutil.table_sink(response_body),
+        sink = ltn12.sink.table(response_body),
     })
 
     if isSuccess(code) then
@@ -269,7 +247,7 @@ function API:getUserViews()
             headers = {
                 ["Authorization"] = self:getAuthHeader(),
             },
-            sink = socketutil.table_sink(response_body),
+            sink = ltn12.sink.table(response_body),
         })
 
         logger.info("Jellyfin API: Views response code:", code)
@@ -360,7 +338,7 @@ function API:getItemsInLibrary(library_id, search_term, start_index, limit, incl
             headers = {
                 ["Authorization"] = self:getAuthHeader(),
             },
-            sink = socketutil.table_sink(response_body),
+            sink = ltn12.sink.table(response_body),
         })
 
         logger.info("Jellyfin API: Items response code:", code)
@@ -415,7 +393,7 @@ function API:getItemDetails(item_id)
             headers = {
                 ["Authorization"] = self:getAuthHeader(),
             },
-            sink = socketutil.table_sink(response_body),
+            sink = ltn12.sink.table(response_body),
         })
 
         if isSuccess(code) then
@@ -456,14 +434,14 @@ function API:downloadItem(item_id, filepath, progress_callback)
         return false, "file_error", 0
     end
 
-    local file_sink = socketutil.file_sink(file)
+    local file_sink = ltn12.sink.file(file)
     local downloaded_size = 0
     local last_progress_report = 0
     local progress_step = 512 * 1024
 
     -- Avoid running a Lua callback for every small network chunk. On slower
     -- e-readers that can become surprisingly expensive during large M4B
-    -- transfers. Report at most once per 256 KiB plus a final update.
+    -- transfers. Report at most once per 512 KiB plus a final update.
     local sink = function(chunk, err)
         if chunk then
             downloaded_size = downloaded_size + #chunk
@@ -495,7 +473,7 @@ function API:downloadItem(item_id, filepath, progress_callback)
             ["Accept-Encoding"] = "identity",
         },
         sink = sink,
-    }, true)
+    })
 
     if io.type(file) == "file" then
         file:close()
@@ -556,7 +534,7 @@ function API:downloadBookCover(item_id, filepath)
             ["Authorization"] = self:getAuthHeader(),
             ["Accept-Encoding"] = "identity",
         },
-        sink = socketutil.file_sink(file),
+        sink = ltn12.sink.file(file),
     })
 
     if io.type(file) == "file" then
@@ -599,7 +577,7 @@ function API:setPlayedStatus(item_id, played)
             ["Authorization"] = self:getAuthHeader(),
             ["Content-Length"] = "0",
         },
-        sink = socketutil.table_sink({}),
+        sink = ltn12.sink.table({}),
     })
 
     if isSuccess(code) then
@@ -624,7 +602,7 @@ function API:setPlayedStatus(item_id, played)
                     ["Authorization"] = self:getAuthHeader(),
                     ["Content-Length"] = "0",
                 },
-                sink = socketutil.table_sink({}),
+                sink = ltn12.sink.table({}),
             })
 
         return isSuccess(legacy_code),
