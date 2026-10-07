@@ -5,6 +5,7 @@ Jellyfin API client
 
 local http = require("socket.http")
 local ltn12 = require("ltn12")
+local socket = require("socket")
 local socketutil = require("socketutil")
 local url = require("socket.url")
 local logger = require("logger")
@@ -43,6 +44,13 @@ local function requestError(result, code, status)
 end
 
 local function performRequest(request, is_file_transfer)
+    request.headers = request.headers or {}
+    if request.headers["Accept-Encoding"] == nil
+            and request.headers["accept-encoding"] == nil
+    then
+        request.headers["Accept-Encoding"] = "identity"
+    end
+
     -- KOReader routes both HTTP and HTTPS through socket.http.request().
     -- Its socketutil module patches LuaSocket/LuaSec underneath so the same
     -- timeout and TLS behavior is used consistently across built-in plugins.
@@ -63,7 +71,7 @@ local function performRequest(request, is_file_transfer)
 
     local ok_request, result, code, headers, status =
         pcall(function()
-            return require("socket").skip(
+            return socket.skip(
                 0,
                 http.request(request)
             )
