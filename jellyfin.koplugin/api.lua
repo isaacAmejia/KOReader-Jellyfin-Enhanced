@@ -68,7 +68,7 @@ function API:getServerUrl()
 	end
 
 	local local_url = self.config:getLocalServerUrl()
-	local external_url = self:getServerUrl()
+	local external_url = self.config:getServerUrl()
 	local selected_url
 	local selected_kind
 
