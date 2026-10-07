@@ -252,7 +252,7 @@ end
 
 function API:getAuthHeader()
     local header = string.format(
-        'MediaBrowser Client="KOReader", Device="eReader", DeviceId="%s", Version="2.0.0"',
+        'MediaBrowser Client="KOReader", Device="eReader", DeviceId="%s", Version="1.0.0"',
         self.config:getDeviceId()
     )
 
@@ -265,18 +265,16 @@ function API:getAuthHeader()
 end
 
 function API:authenticateByPassword(username, password)
-    local auth_url =
-        self.config:getServerUrl()
-        .. "/Users/AuthenticateByName"
-
+    local auth_url = self.config:getServerUrl() .. "/Users/AuthenticateByName"
     local auth_data = json.encode({
-        Username = username or "",
-        Pw = password or "",
+        Username = username,
+        Pw = password,
     })
 
     local response_body = {}
 
-    local result, code, _, status = performRequest({
+    -- Intentionally identical to the official KOReader Jellyfin plugin.
+    local res, code = http.request {
         url = auth_url,
         method = "POST",
         headers = {
@@ -286,91 +284,83 @@ function API:authenticateByPassword(username, password)
         },
         source = ltn12.source.string(auth_data),
         sink = ltn12.sink.table(response_body),
-    })
+    }
 
-    if isSuccess(code) then
-        local response = decodeBody(response_body)
-        if response
-                and response.AccessToken
-                and response.User
-                and response.User.Id
-        then
+    if code == 200 then
+        local ok_decode, response = pcall(
+            json.decode,
+            table.concat(response_body)
+        )
+        if ok_decode and response then
             return true, response
         end
         return false, "parse_error"
     end
 
-    return false, requestError(result, code, status)
+    return false, code or res or "network_error"
 end
 
 function API:initiateQuickConnect()
-    local qc_url =
-        self.config:getServerUrl()
-        .. "/QuickConnect/Initiate"
-
+    local qc_url = self.config:getServerUrl() .. "/QuickConnect/Initiate"
     local response_body = {}
 
-    local result, code, _, status = performRequest({
+    local res, code = http.request {
         url = qc_url,
         method = "POST",
         headers = {
             ["Authorization"] = self:getAuthHeader(),
-            ["Content-Length"] = "0",
         },
         sink = ltn12.sink.table(response_body),
-    })
+    }
 
-    if isSuccess(code) then
-        local response = decodeBody(response_body)
-        if response and response.Code and response.Secret then
+    if code == 200 then
+        local ok_decode, response =
+            pcall(json.decode, table.concat(response_body))
+        if ok_decode and response then
             return true, response
         end
         return false, "parse_error"
     end
-
-    return false, requestError(result, code, status)
+    return false, code or res or "network_error"
 end
 
 function API:checkQuickConnect(secret)
     local check_url =
         self.config:getServerUrl()
         .. "/QuickConnect/Connect?secret="
-        .. url.escape(secret or "")
-
+        .. tostring(secret or "")
     local response_body = {}
 
-    local result, code, _, status = performRequest({
+    local res, code = http.request {
         url = check_url,
         method = "GET",
         headers = {
             ["Authorization"] = self:getAuthHeader(),
         },
         sink = ltn12.sink.table(response_body),
-    })
+    }
 
-    if isSuccess(code) then
-        local response = decodeBody(response_body)
-        if response then
+    if code == 200 then
+        local ok_decode, response =
+            pcall(json.decode, table.concat(response_body))
+        if ok_decode and response then
             return true, response
         end
         return false, "parse_error"
     end
-
-    return false, requestError(result, code, status)
+    return false, code or res or "network_error"
 end
 
 function API:authenticateWithQuickConnect(secret)
     local auth_url =
         self.config:getServerUrl()
         .. "/Users/AuthenticateWithQuickConnect"
-
     local auth_data = json.encode({
         Secret = secret,
     })
-
     local response_body = {}
 
-    local result, code, _, status = performRequest({
+    local res, code = http.request {
         url = auth_url,
         method = "POST",
         headers = {
@@ -380,75 +370,84 @@ function API:authenticateWithQuickConnect(secret)
         },
         source = ltn12.source.string(auth_data),
         sink = ltn12.sink.table(response_body),
-    })
+    }
 
-    if isSuccess(code) then
-        local response = decodeBody(response_body)
-        if response
-                and response.AccessToken
-                and response.User
-                and response.User.Id
-        then
+    if code == 200 then
+        local ok_decode, response =
+            pcall(json.decode, table.concat(response_body))
+        if ok_decode and response then
             return true, response
         end
         return false, "parse_error"
     end
-
-    return false, requestError(result, code, status)
+    return false, code or res or "network_error"
 end
 
 function API:getUserViews()
     local user_id = self.config:getUserId()
     local server = self.config:getServerUrl()
 
-    -- Jellyfin 12's current endpoint. Keep the legacy user-scoped route as
-    -- a fallback for older servers.
-    local urls = {
+    -- Use the exact route used by the official plugin first. Jellyfin 12 still
+    -- supports it, and this is the path proven on the target Kindle.
+    local legacy_url =
         server
-            .. "/UserViews?userId="
-            .. url.escape(user_id),
-        server
-            .. "/Users/"
-            .. url.escape(user_id)
-            .. "/Views",
+        .. "/Users/"
+        .. url.escape(user_id or "")
+        .. "/Views"
+
+    local response_body = {}
+    logger.info("Jellyfin API: Request URL:", legacy_url)
+
+    local res, code = http.request {
+        url = legacy_url,
+        method = "GET",
+        headers = {
+            ["Authorization"] = self:getAuthHeader(),
+        },
+        sink = ltn12.sink.table(response_body),
     }
 
-    logger.info("Jellyfin API: Fetching user libraries")
+    logger.info("Jellyfin API: Views response code:", code)
 
-    local last_error = "network_error"
+    if code == 200 then
+        local response = decodeBody(response_body)
+        if response and type(response.Items) == "table" then
+            return true, response
+        end
+        return false, "parse_error"
+    end
 
-    for index, views_url in ipairs(urls) do
-        local response_body = {}
+    -- Only use Jellyfin 12's newer route as a compatibility fallback.
+    if code == 404 or code == 405 then
+        local current_url =
+            server
+            .. "/UserViews?userId="
+            .. url.escape(user_id or "")
+        local current_body = {}
 
-        local result, code, _, status = performRequest({
-            url = views_url,
-            method = "GET",
-            headers = {
-                ["Authorization"] = self:getAuthHeader(),
-            },
-            sink = ltn12.sink.table(response_body),
-        })
+        local result, current_code, _, status =
+            performRequest({
+                url = current_url,
+                method = "GET",
+                headers = {
+                    ["Authorization"] = self:getAuthHeader(),
+                },
+                sink = ltn12.sink.table(current_body),
+            })
 
-        logger.info("Jellyfin API: Views response code:", code)
-
-        if isSuccess(code) then
-            local response = decodeBody(response_body)
+        if isSuccess(current_code) then
+            local response = decodeBody(current_body)
             if response and type(response.Items) == "table" then
                 return true, response
             end
             return false, "parse_error"
         end
 
-        last_error = requestError(result, code, status)
-
-        -- Only try the legacy endpoint when the current route is not present
-        -- or not accepted. Authentication/permission failures should surface.
-        if index == 1 and code ~= 404 and code ~= 405 then
-            break
-        end
+        return false,
+            requestError(result, current_code, status)
     end
 
-    return false, last_error
+    return false, code or res or "network_error"
 end
 
 function API:getItemsInLibrary(library_id, search_term, start_index, limit, include_total_count)
