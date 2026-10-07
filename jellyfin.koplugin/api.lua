@@ -4,7 +4,6 @@ Jellyfin API client
 ]]
 
 local http = require("socket.http")
-local https = require("ssl.https")
 local ltn12 = require("ltn12")
 local socketutil = require("socketutil")
 local url = require("socket.url")
@@ -44,26 +43,39 @@ local function requestError(result, code, status)
 end
 
 local function performRequest(request, is_file_transfer)
-    local requester =
-        request.url:match("^https://")
-        and https
-        or http
-
+    -- KOReader routes both HTTP and HTTPS through socket.http.request().
+    -- Its socketutil module patches LuaSocket/LuaSec underneath so the same
+    -- timeout and TLS behavior is used consistently across built-in plugins.
+    --
+    -- Using ssl.https.request() directly here caused timeouts on slower
+    -- e-readers/reverse-proxied Jellyfin servers even though the same URL
+    -- worked through KOReader's normal network stack.
     if is_file_transfer then
-        -- Large ebooks/audiobooks may legitimately take longer than a minute.
-        -- Keep a per-block timeout, but do not impose a total transfer timeout.
-        socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT, -1)
+        socketutil:set_timeout(
+            socketutil.FILE_BLOCK_TIMEOUT,
+            -1
+        )
     else
-        socketutil:set_timeout(10, 30)
+        -- Authentication may include DNS + TLS + reverse-proxy negotiation.
+        -- Favor reliability over an aggressive timeout on low-power devices.
+        socketutil:set_timeout(30, 60)
     end
 
     local ok_request, result, code, headers, status =
-        pcall(requester.request, request)
+        pcall(function()
+            return require("socket").skip(
+                0,
+                http.request(request)
+            )
+        end)
 
     socketutil:reset_timeout()
 
     if not ok_request then
-        logger.warn("Jellyfin API: request failed:", tostring(result))
+        logger.warn(
+            "Jellyfin API: request failed:",
+            tostring(result)
+        )
         return nil, nil, nil, tostring(result)
     end
 
