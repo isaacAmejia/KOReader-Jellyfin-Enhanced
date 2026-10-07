@@ -5,7 +5,6 @@ Jellyfin API client
 
 local http = require("socket.http")
 local ltn12 = require("ltn12")
-local socket = require("socket")
 local socketutil = require("socketutil")
 local url = require("socket.url")
 local logger = require("logger")
@@ -70,12 +69,7 @@ local function performRequest(request, is_file_transfer)
     end
 
     local ok_request, result, code, headers, status =
-        pcall(function()
-            return socket.skip(
-                0,
-                http.request(request)
-            )
-        end)
+        pcall(http.request, request)
 
     socketutil:reset_timeout()
 
