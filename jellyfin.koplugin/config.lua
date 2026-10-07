@@ -11,6 +11,14 @@ function Config:setServerUrl(url)
 	G_reader_settings:saveSetting("jellyfin_server_url", url)
 end
 
+function Config:getLocalServerUrl()
+	return G_reader_settings:readSetting("jellyfin_local_server_url") or ""
+end
+
+function Config:setLocalServerUrl(url)
+	G_reader_settings:saveSetting("jellyfin_local_server_url", url or "")
+end
+
 function Config:getUserId()
 	return G_reader_settings:readSetting("jellyfin_user_id") or ""
 end
@@ -110,6 +118,9 @@ function Config:initialize()
 
 	if not G_reader_settings:readSetting("jellyfin_server_url") then
 		G_reader_settings:saveSetting("jellyfin_server_url", "")
+	end
+	if not G_reader_settings:readSetting("jellyfin_local_server_url") then
+		G_reader_settings:saveSetting("jellyfin_local_server_url", "")
 	end
 	if not G_reader_settings:readSetting("jellyfin_user_id") then
 		G_reader_settings:saveSetting("jellyfin_user_id", "")
