@@ -14,7 +14,7 @@ local Dispatcher = require("dispatcher")
 local logger = require("logger")
 local _ = require("gettext")
 
-local BUILD_VERSION = "2.0.0-alpha.2"
+local BUILD_VERSION = "2.0.0-alpha.3"
 
 -- Load our own modules by absolute plugin-relative path instead of generic
 -- require("config") / require("api") names. Third-party KOReader plugins share
@@ -102,7 +102,7 @@ function Jellyfin:addToMainMenu(menu_items)
         sorting_hint = "tools",
         sub_item_table = {
             {
-                text = _("Configure Server"),
+                text = _("Server Addresses"),
                 keep_menu_open = true,
                 callback = function()
                     self:getUI():configureServer()
