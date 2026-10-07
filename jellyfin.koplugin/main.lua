@@ -14,6 +14,8 @@ local Dispatcher = require("dispatcher")
 local logger = require("logger")
 local _ = require("gettext")
 
+local BUILD_VERSION = "2.0.0-alpha.2"
+
 -- Load our own modules by absolute plugin-relative path instead of generic
 -- require("config") / require("api") names. Third-party KOReader plugins share
 -- Lua's module cache and search path, so generic names can collide.
@@ -69,7 +71,7 @@ function Jellyfin:onDispatcherRegisterActions()
 end
 
 function Jellyfin:init()
-    logger.info("Jellyfin: Initialising plugin")
+    logger.info("Jellyfin Enhanced:", BUILD_VERSION, "- Initialising plugin")
     Config:initialize()
 
     -- Keep construction order aligned with the official plugin.
@@ -79,7 +81,7 @@ function Jellyfin:init()
 
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
-    logger.info("Jellyfin: Plugin initialised")
+    logger.info("Jellyfin Enhanced:", BUILD_VERSION, "- Plugin initialised")
 end
 
 function Jellyfin:onJellyfinBrowseBooks()
