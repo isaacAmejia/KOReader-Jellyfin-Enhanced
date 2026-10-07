@@ -1,6 +1,8 @@
 local http = require("socket.http")
 local ltn12 = require("ltn12")
 local logger = require("logger")
+local socket = require("socket")
+local socket_url = require("socket.url")
 
 local json
 local ok = pcall(function() json = require("json") end)
@@ -10,13 +12,89 @@ end
 
 local API = {}
 
+local LOCAL_PROBE_TIMEOUT = 1.5
+local SERVER_SELECTION_TTL = 30
+
 function API:new(config)
 	local o = {
-		config = config
+		config = config,
+		server_selection = nil,
 	}
 	setmetatable(o, self)
 	self.__index = self
 	return o
+end
+
+function API:resetServerSelection()
+	self.server_selection = nil
+end
+
+function API:isServerReachable(server_url)
+	if not server_url or server_url == "" then
+		return false
+	end
+
+	local parsed = socket_url.parse(server_url)
+	if not parsed or not parsed.host then
+		return false
+	end
+
+	local scheme = (parsed.scheme or "http"):lower()
+	local port = tonumber(parsed.port)
+		or (scheme == "https" and 443 or 80)
+
+	local tcp = socket.tcp()
+	if not tcp then
+		return false
+	end
+
+	tcp:settimeout(LOCAL_PROBE_TIMEOUT)
+	local connected = tcp:connect(parsed.host, port)
+	pcall(tcp.close, tcp)
+
+	return connected and true or false
+end
+
+function API:getServerUrl()
+	local now = socket.gettime and socket.gettime() or os.time()
+	local cached = self.server_selection
+
+	if cached
+			and cached.url
+			and cached.checked_at
+			and now - cached.checked_at < SERVER_SELECTION_TTL
+	then
+		return cached.url
+	end
+
+	local local_url = self.config:getLocalServerUrl()
+	local external_url = self:getServerUrl()
+	local selected_url
+	local selected_kind
+
+	if local_url ~= "" and self:isServerReachable(local_url) then
+		selected_url = local_url
+		selected_kind = "local"
+	else
+		selected_url = external_url
+		selected_kind = "external"
+	end
+
+	self.server_selection = {
+		url = selected_url,
+		kind = selected_kind,
+		checked_at = now,
+	}
+
+	if not cached or cached.kind ~= selected_kind then
+		logger.info(
+			"Jellyfin API: Using",
+			selected_kind,
+			"server address"
+		)
+	end
+
+	return selected_url
 end
 
 function API:getAuthHeader()
@@ -34,7 +112,7 @@ function API:getAuthHeader()
 end
 
 function API:authenticateByPassword(username, password)
-	local auth_url = self.config:getServerUrl() .. "/Users/AuthenticateByName"
+	local auth_url = self:getServerUrl() .. "/Users/AuthenticateByName"
 	local auth_data = json.encode({
 		Username = username,
 		Pw = password,
@@ -63,7 +141,7 @@ function API:authenticateByPassword(username, password)
 end
 
 function API:initiateQuickConnect()
-	local qc_url = self.config:getServerUrl() .. "/QuickConnect/Initiate"
+	local qc_url = self:getServerUrl() .. "/QuickConnect/Initiate"
 	local response_body = {}
 
 	local res, code = http.request {
@@ -84,7 +162,7 @@ function API:initiateQuickConnect()
 end
 
 function API:checkQuickConnect(secret)
-	local check_url = self.config:getServerUrl() .. "/QuickConnect/Connect?secret=" .. secret
+	local check_url = self:getServerUrl() .. "/QuickConnect/Connect?secret=" .. secret
 	local response_body = {}
 
 	local res, code = http.request {
@@ -105,7 +183,7 @@ function API:checkQuickConnect(secret)
 end
 
 function API:authenticateWithQuickConnect(secret)
-	local auth_url = self.config:getServerUrl() .. "/Users/AuthenticateWithQuickConnect"
+	local auth_url = self:getServerUrl() .. "/Users/AuthenticateWithQuickConnect"
 	local auth_data = json.encode({
 		Secret = secret,
 	})
@@ -134,7 +212,7 @@ end
 
 function API:getUserViews()
 	local user_id = self.config:getUserId()
-	local views_url = self.config:getServerUrl() .. "/Users/" .. user_id .. "/Views"
+	local views_url = self:getServerUrl() .. "/Users/" .. user_id .. "/Views"
 	local response_body = {}
 
 	logger.info("Jellyfin API: Request URL:", views_url)
@@ -195,7 +273,7 @@ function API:getItemsInLibrary(library_id, search_term, start_index, limit, incl
 
     -- Keep the same user-scoped route style as the working upstream plugin.
     local items_url =
-        self.config:getServerUrl() ..
+        self:getServerUrl() ..
         "/Users/" .. escape(self.config:getUserId()) ..
         "/Items?" .. params
 
@@ -226,7 +304,7 @@ end
 
 function API:getItemDetails(item_id)
     local item_url =
-        self.config:getServerUrl() ..
+        self:getServerUrl() ..
         "/Users/" .. escape(self.config:getUserId()) ..
         "/Items/" .. escape(item_id)
 
@@ -253,7 +331,7 @@ end
 
 function API:downloadItem(item_id, filepath, progress_callback)
     local download_url =
-        self.config:getServerUrl() ..
+        self:getServerUrl() ..
         "/Items/" .. escape(item_id) .. "/Download"
     local temp_path = filepath .. ".part"
     os.remove(temp_path)
@@ -313,7 +391,7 @@ end
 
 function API:downloadBookCover(item_id, filepath)
     local cover_url =
-        self.config:getServerUrl() ..
+        self:getServerUrl() ..
         "/Items/" .. escape(item_id) ..
         "/Images/Primary?maxWidth=320&format=Jpg"
     local temp_path = filepath .. ".part"
@@ -354,7 +432,7 @@ end
 function API:setPlayedStatus(item_id, played)
     local endpoint = played and "PlayedItems" or "UnplayedItems"
     local status_url =
-        self.config:getServerUrl() ..
+        self:getServerUrl() ..
         "/Users/" .. self.config:getUserId() ..
         "/" .. endpoint .. "/" .. item_id
 
