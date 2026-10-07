@@ -94,49 +94,6 @@ function Jellyfin:onJellyfinBrowseBooks()
     self:getUI():browseBooks()
 end
 
-function Jellyfin:runConnectionDiagnostic()
-    local NetworkMgr = require("ui/network/manager")
-    local UIManager = require("ui/uimanager")
-    local InfoMessage = require("ui/widget/infomessage")
-
-    NetworkMgr:runWhenOnline(function()
-        UIManager:show(InfoMessage:new {
-            text = _("Testing Jellyfin connection..."),
-            timeout = 1,
-        })
-
-        UIManager:scheduleIn(0.1, function()
-            local ok_diag, result =
-                pcall(
-                    self.getAPI(self).diagnoseConnection,
-                    self.getAPI(self)
-                )
-
-            if not ok_diag then
-                UIManager:show(InfoMessage:new {
-                    text =
-                        _("Connection diagnostic failed to run:")
-                        .. "\n\n"
-                        .. tostring(result),
-                })
-                return
-            end
-
-            local lines =
-                result
-                and result.lines
-                or { "No diagnostic result returned" }
-
-            UIManager:show(InfoMessage:new {
-                text =
-                    _("Jellyfin Connection Diagnostic")
-                    .. "\n\n"
-                    .. table.concat(lines, "\n"),
-            })
-        end)
-    end)
-end
-
 function Jellyfin:addToMainMenu(menu_items)
     menu_items.jellyfin = {
         text = _("Jellyfin Books"),
@@ -147,12 +104,6 @@ function Jellyfin:addToMainMenu(menu_items)
                 keep_menu_open = true,
                 callback = function()
                     self:getUI():configureServer()
-                end,
-            },
-            {
-                text = _("Connection Diagnostic"),
-                callback = function()
-                    self:runConnectionDiagnostic()
                 end,
             },
             {
