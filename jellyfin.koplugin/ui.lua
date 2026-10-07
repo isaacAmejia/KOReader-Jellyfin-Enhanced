@@ -10,6 +10,7 @@ local DataStorage = require("datastorage")
 local util = require("util")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
+local MultiInputDialog = require("ui/widget/multiinputdialog")
 local Menu = require("ui/widget/menu")
 local ProgressbarDialog = require("ui/widget/progressbardialog")
 local NetworkMgr = require("ui/network/manager")
@@ -678,10 +679,18 @@ end
 function UI:configureServer()
     local input_dialog
 
-    input_dialog = InputDialog:new {
-        title = _("Enter Jellyfin Server URL"),
-        input = self.config:getServerUrl(),
-        input_hint = "https://jellyfin.example.com",
+    input_dialog = MultiInputDialog:new {
+        title = _("Jellyfin Server Addresses"),
+        fields = {
+            {
+                text = self.config:getServerUrl(),
+                hint = _("External URL (required)"),
+            },
+            {
+                text = self.config:getLocalServerUrl(),
+                hint = _("Local URL (optional)"),
+            },
+        },
 
         buttons = {
             {
@@ -698,29 +707,50 @@ function UI:configureServer()
                     is_enter_default = true,
 
                     callback = function()
-                        local url = trim(input_dialog:getInputText())
-                        url = url:gsub("/+$", "")
+                        local fields = input_dialog:getFields()
+                        local external_url = trim(fields[1] or "")
+                        local local_url = trim(fields[2] or "")
 
-                        if url == "" then
+                        external_url = external_url:gsub("/+$", "")
+                        local_url = local_url:gsub("/+$", "")
+
+                        if external_url == "" then
                             UIManager:show(InfoMessage:new {
-                                text = _("Enter your Jellyfin server URL."),
+                                text = _("Enter your external Jellyfin server URL."),
                             })
                             return
                         end
 
-                        if not url:match("^https?://") then
+                        if not external_url:match("^https?://") then
                             UIManager:show(InfoMessage:new {
                                 text = _(
-                                    "Server URL must include http:// or https://"
+                                    "External URL must include http:// or https://"
                                 ),
                             })
                             return
                         end
 
-                        self.config:setServerUrl(url)
+                        if local_url ~= ""
+                                and not local_url:match("^https?://")
+                        then
+                            UIManager:show(InfoMessage:new {
+                                text = _(
+                                    "Local URL must include http:// or https://"
+                                ),
+                            })
+                            return
+                        end
+
+                        self.config:setServerUrl(external_url)
+                        self.config:setLocalServerUrl(local_url)
+                        self.api:resetServerSelection()
 
                         UIManager:show(InfoMessage:new {
-                            text = _("Server URL saved"),
+                            text = local_url ~= ""
+                                and _(
+                                    "Server addresses saved. Local will be preferred when reachable."
+                                )
+                                or _("External server URL saved."),
                         })
 
                         UIManager:close(input_dialog)
