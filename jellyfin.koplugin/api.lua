@@ -62,6 +62,185 @@ local function performRequest(request)
     return result, code, headers, status
 end
 
+function API:diagnoseConnection()
+    local server = self.config:getServerUrl()
+    if not server or server == "" then
+        return {
+            ok = false,
+            lines = { "Server URL: not configured" },
+        }
+    end
+
+    local socket = require("socket")
+    local parsed = url.parse(server) or {}
+    local scheme = (parsed.scheme or ""):lower()
+    local host = parsed.host
+    local port = tonumber(parsed.port)
+        or (scheme == "https" and 443 or 80)
+
+    local lines = {}
+    local all_ok = true
+
+    local function add(label, ok_value, detail)
+        if not ok_value then
+            all_ok = false
+        end
+        lines[#lines + 1] =
+            label
+            .. ": "
+            .. (ok_value and "OK" or "FAIL")
+            .. (detail and (" (" .. tostring(detail) .. ")") or "")
+    end
+
+    if not host or host == "" then
+        add("URL parse", false, "missing hostname")
+        return { ok = false, lines = lines }
+    end
+
+    add("URL parse", true, scheme .. " / port " .. tostring(port))
+
+    -- 1) DNS resolution.
+    local dns_started = socket.gettime and socket.gettime() or os.time()
+    local ok_dns, ip_or_error =
+        pcall(socket.dns.toip, host)
+    local dns_elapsed =
+        (socket.gettime and socket.gettime() or os.time())
+        - dns_started
+
+    local resolved_ip =
+        ok_dns and ip_or_error or nil
+
+    add(
+        "DNS",
+        resolved_ip ~= nil,
+        resolved_ip
+            and (tostring(resolved_ip) .. string.format(", %.1fs", dns_elapsed))
+            or (tostring(ip_or_error) .. string.format(", %.1fs", dns_elapsed))
+    )
+
+    -- 2) Plain TCP reachability to the configured port.
+    local tcp = socket.tcp()
+    if tcp then
+        tcp:settimeout(8)
+        local tcp_started =
+            socket.gettime and socket.gettime() or os.time()
+        local ok_tcp, tcp_error =
+            tcp:connect(host, port)
+        local tcp_elapsed =
+            (socket.gettime and socket.gettime() or os.time())
+            - tcp_started
+        pcall(tcp.close, tcp)
+
+        add(
+            "TCP",
+            ok_tcp and true or false,
+            ok_tcp
+                and string.format("%.1fs", tcp_elapsed)
+                or (tostring(tcp_error) .. string.format(", %.1fs", tcp_elapsed))
+        )
+    else
+        add("TCP", false, "socket unavailable")
+    end
+
+    local public_url =
+        server:gsub("/$", "")
+        .. "/System/Info/Public"
+
+    -- 3) Storefront-style scheme-specific request. This distinguishes a TLS
+    -- issue from the plugin's historical socket.http transport behavior.
+    local socketutil = require("socketutil")
+    local direct_module = http
+    if scheme == "https" then
+        local ok_https, https =
+            pcall(require, "ssl.https")
+        if ok_https and https then
+            direct_module = https
+        else
+            add("TLS module", false, "ssl.https unavailable")
+            return { ok = false, lines = lines }
+        end
+    end
+
+    socketutil:set_timeout(10, 20)
+    local direct_body = {}
+    local direct_started =
+        socket.gettime and socket.gettime() or os.time()
+    local ok_direct, direct_result, direct_code =
+        pcall(
+            direct_module.request,
+            {
+                url = public_url,
+                method = "GET",
+                headers = {
+                    ["Accept"] = "application/json",
+                    ["Connection"] = "close",
+                },
+                sink = ltn12.sink.table(direct_body),
+            }
+        )
+    local direct_elapsed =
+        (socket.gettime and socket.gettime() or os.time())
+        - direct_started
+    socketutil:reset_timeout()
+
+    local direct_status =
+        ok_direct and tonumber(direct_code) or nil
+    add(
+        scheme == "https" and "TLS/HTTPS" or "HTTP direct",
+        direct_status ~= nil
+            and direct_status >= 200
+            and direct_status < 500,
+        ok_direct
+            and (tostring(direct_code) .. string.format(", %.1fs", direct_elapsed))
+            or (tostring(direct_result) .. string.format(", %.1fs", direct_elapsed))
+    )
+
+    -- 4) The exact transport used by the Jellyfin plugin. Keep a temporary
+    -- diagnostic timeout so this menu item cannot block for two minutes.
+    socketutil:set_timeout(10, 20)
+    local plugin_body = {}
+    local plugin_started =
+        socket.gettime and socket.gettime() or os.time()
+    local plugin_result, plugin_code, _, plugin_status =
+        performRequest({
+            url = public_url,
+            method = "GET",
+            headers = {
+                ["Accept"] = "application/json",
+                ["Connection"] = "close",
+            },
+            sink = ltn12.sink.table(plugin_body),
+        })
+    local plugin_elapsed =
+        (socket.gettime and socket.gettime() or os.time())
+        - plugin_started
+    socketutil:reset_timeout()
+
+    local plugin_http_code = tonumber(plugin_code)
+    add(
+        "Jellyfin transport",
+        plugin_http_code ~= nil
+            and plugin_http_code >= 200
+            and plugin_http_code < 500,
+        plugin_http_code
+            and (tostring(plugin_http_code) .. string.format(", %.1fs", plugin_elapsed))
+            or (
+                tostring(plugin_status or plugin_code or plugin_result)
+                .. string.format(", %.1fs", plugin_elapsed)
+            )
+    )
+
+    logger.info(
+        "Jellyfin diagnostic:",
+        table.concat(lines, " | ")
+    )
+
+    return {
+        ok = all_ok,
+        lines = lines,
+    }
+end
+
 function API:new(config)
     local o = {
         config = config,
