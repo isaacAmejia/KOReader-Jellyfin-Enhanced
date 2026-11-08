@@ -33,7 +33,7 @@ Ebooks work with this plugin by itself. After an ebook downloads, KOReader can o
 
 This plugin downloads audiobook files and cover art, but it does **not** contain an audio player.
 
-For a library-style audiobook experience, install the companion [KOReader Audiobook Bridge](https://github.com/isaacAmejia/KOReader-Audiobook-Bridge) and **Audiobook Read-Along**.
+For a library-style audiobook experience, install the companion [KOReader Audiobook Bridge](https://github.com/isaacAmejia/KOReader-Audiobook-Bridge) and [Audiobook Read-Along](https://github.com/stradichenko/audiobook.koplugin).
 
 The resulting flow is:
 
@@ -56,13 +56,13 @@ Audiobook Read-Along
 - network access from the device to your Jellyfin server
 - a Jellyfin account that can access one or more book libraries
 
-The current development branch has been source-audited against **KOReader v2026.07.1**, the latest KOReader release at the time of this compatibility pass. It has also been checked against **Jellyfin Server v12.1** API routes. The plugin keeps fallbacks for older Jellyfin user-view, item-listing, and played-state endpoints.
+Tested with **KOReader v2026.07.1** and **Jellyfin Server 12.1**. The plugin keeps fallbacks for older Jellyfin user-view, item-listing, and played-state endpoints.
 
-The plugin uses KOReader data-directory APIs rather than Kindle-specific filesystem locations, so it is intended to be portable across KOReader platforms. A clean-device runtime test is still recommended before treating a development build as a release.
+The plugin uses KOReader's own data-directory APIs rather than device-specific paths, so it should work on any platform KOReader supports. It has been tested on Kindle; reports from other devices are welcome.
 
 ### Low-resource design
 
-The browser is designed for slower e-readers: Jellyfin results are fetched in 40-item batches, full item metadata is loaded only for the selected book, covers are fetched only for the visible page, and the local thumbnail cache is bounded. The browser still minimizes runtime work through batched results, lazy per-item metadata, visible-page cover loading, and bounded caches. The core API/auth/UI modules intentionally load at plugin startup to preserve the official Jellyfin plugin's proven KOReader networking initialization behavior.
+The browser is designed for slower e-readers: Jellyfin results are fetched in 40-item batches, full item metadata is loaded only for the selected book, covers are fetched only for the visible page, and the local thumbnail cache is bounded. The core API, login, and UI modules load at plugin startup, matching the original Jellyfin plugin's proven networking setup on KOReader.
 
 ## Installation
 
@@ -218,7 +218,7 @@ Check that:
 
 ### Audiobooks download but do not open
 
-Audio playback is outside this plugin's scope. Install Audiobook Read-Along and the companion KOReader Audiobook Bridge.
+Audio playback is outside this plugin's scope. Install [Audiobook Read-Along](https://github.com/stradichenko/audiobook.koplugin) and the companion [KOReader Audiobook Bridge](https://github.com/isaacAmejia/KOReader-Audiobook-Bridge).
 
 ## Publishing a release
 
@@ -227,8 +227,16 @@ Audio playback is outside this plugin's scope. Install Audiobook Read-Along and 
 
 GitHub Actions then tags the commit, builds `jellyfin.koplugin.zip`, and publishes the release. The download link above and **Check for updates** on devices both pick it up automatically.
 
+## Reporting problems
+
+Please [open an issue](https://github.com/isaacAmejia/KOReader-Jellyfin-Enhanced/issues) and include your KOReader version, your device, and what you were doing when the problem happened. If KOReader wrote a `crash.log`, attach the relevant part.
+
+Before posting logs or settings, remove anything private, such as server addresses, usernames, and access tokens.
+
 ## Attribution and license
 
 This is a modified version of **KOReader-Jellyfin-Plugin** by Declan Chidlow (Vale).
 
 The original project is licensed under the **GNU Affero General Public License v3.0**, and this enhanced fork remains under the same license. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
+
+The bundled Quick Action icon is adapted from the Jellyfin logo by the Jellyfin Project and is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Jellyfin is a trademark of its respective owners.

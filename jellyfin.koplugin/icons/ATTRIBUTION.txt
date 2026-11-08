@@ -1,0 +1,6 @@
+Jellyfin.png is adapted from the Jellyfin logo by the Jellyfin Project
+(https://github.com/jellyfin/jellyfin-ux), licensed under CC BY-SA 4.0
+(https://creativecommons.org/licenses/by-sa/4.0/). This monochrome
+adaptation is distributed under the same license. Jellyfin is a trademark
+of its respective owners; this plugin is not affiliated with or endorsed
+by the Jellyfin Project.
