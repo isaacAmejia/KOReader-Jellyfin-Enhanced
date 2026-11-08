@@ -14,7 +14,7 @@ local Dispatcher = require("dispatcher")
 local logger = require("logger")
 local _ = require("gettext")
 
-local BUILD_VERSION = "2.0.0"
+local BUILD_VERSION = "2.0.1"
 
 -- Load our own modules by absolute plugin-relative path instead of generic
 -- require("config") / require("api") names. Third-party KOReader plugins share
@@ -60,6 +60,37 @@ local function showInfo(text)
     })
 end
 
+-- SimpleUI (2.5+) lists PNG/SVG files from settings/simpleui/sui_icons/ in its
+-- Quick Action icon picker. When SimpleUI is installed, place the bundled
+-- Jellyfin icon there so it can be chosen without copying files by hand.
+-- Never overwrites an existing file and does nothing if SimpleUI is absent.
+local function installSimpleUIIcon()
+    local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
+    local ok_ds, DataStorage = pcall(require, "datastorage")
+    if not ok_lfs or not ok_ds then return end
+
+    local simpleui_dir = DataStorage:getSettingsDir() .. "/simpleui"
+    if lfs.attributes(simpleui_dir, "mode") ~= "directory" then return end
+
+    local icons_dir = simpleui_dir .. "/sui_icons"
+    local dest = icons_dir .. "/Jellyfin.png"
+    if lfs.attributes(dest, "mode") then return end
+    if lfs.attributes(icons_dir, "mode") ~= "directory" then
+        lfs.mkdir(icons_dir)
+    end
+
+    local src = io.open(PLUGIN_DIR .. "icons/Jellyfin.png", "rb")
+    if not src then return end
+    local data = src:read("*a")
+    src:close()
+
+    local out = io.open(dest, "wb")
+    if not out then return end
+    out:write(data)
+    out:close()
+    logger.info("Jellyfin Enhanced: added Jellyfin icon for SimpleUI Quick Actions")
+end
+
 function Jellyfin:onDispatcherRegisterActions()
     Dispatcher:registerAction(
         "jellyfin_browse_books",
@@ -88,6 +119,7 @@ function Jellyfin:init()
 
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
+    pcall(installSimpleUIIcon)
     logger.info("Jellyfin Enhanced:", BUILD_VERSION, "- Plugin initialised")
 end
 

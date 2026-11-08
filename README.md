@@ -167,6 +167,8 @@ You can assign that action to a KOReader gesture or another interface that suppo
 
 SimpleUI is **optional**. If you use SimpleUI, create a Quick Action using the same Dispatcher action. No SimpleUI source files need to be replaced.
 
+The plugin includes a Jellyfin icon for that Quick Action. When SimpleUI is installed, the icon is added to SimpleUI's custom icon list automatically, so you can pick **Jellyfin** from the icon picker without copying any files.
+
 ## Audiobook sidecar artwork
 
 When Jellyfin identifies an item as an audiobook, the plugin creates a sidecar directory next to the downloaded file and attempts to save the item's primary Jellyfin image as `cover.jpg`.
