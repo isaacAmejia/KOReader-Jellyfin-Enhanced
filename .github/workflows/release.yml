@@ -1,0 +1,53 @@
+name: Release
+
+# Push a tag like v1.2.3 (matching the version in _meta.lua) to publish a
+# release. The attached zip is what the README's download link and the
+# in-plugin "Check for updates" menu install.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      PLUGIN_DIR: jellyfin.koplugin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches plugin version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          meta=$(sed -n 's/.*version *= *"\([^"]*\)".*/\1/p' "$PLUGIN_DIR/_meta.lua")
+          echo "tag=$tag _meta.lua=$meta"
+          if [ "$tag" != "$meta" ]; then
+            echo "::error::Tag v$tag does not match _meta.lua version $meta"
+            exit 1
+          fi
+          build=$(sed -n 's/^local BUILD_VERSION = "\([^"]*\)".*/\1/p' "$PLUGIN_DIR/main.lua")
+          if [ "$build" != "$meta" ]; then
+            echo "::error::main.lua BUILD_VERSION $build does not match _meta.lua version $meta"
+            exit 1
+          fi
+      - name: Install Lua 5.1
+        run: sudo apt-get update && sudo apt-get install -y lua5.1
+
+      - name: Parse plugin Lua files
+        run: find "$PLUGIN_DIR" -type f -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+
+      - name: Build zip
+        run: zip -r "$PLUGIN_DIR.zip" "$PLUGIN_DIR" -x '*.DS_Store'
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$PLUGIN_DIR.zip" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --latest

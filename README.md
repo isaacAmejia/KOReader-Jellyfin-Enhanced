@@ -66,15 +66,8 @@ The browser is designed for slower e-readers: Jellyfin results are fetched in 40
 
 ## Installation
 
-Copy the folder:
-
-```text
-jellyfin.koplugin/
-```
-
-into your KOReader `plugins` directory.
-
-Common locations include:
+1. Download **[jellyfin.koplugin.zip](https://github.com/isaacAmejia/KOReader-Jellyfin-Enhanced/releases/latest/download/jellyfin.koplugin.zip)**. This link always points to the latest release.
+2. Unzip it and copy the `jellyfin.koplugin` folder into your KOReader `plugins` folder:
 
 | Platform | KOReader plugin directory |
 | --- | --- |
@@ -83,7 +76,19 @@ Common locations include:
 | Linux | `~/.config/koreader/plugins/` |
 | Android | `/sdcard/koreader/plugins/` |
 
-Restart KOReader after installation.
+3. Restart KOReader.
+
+If you are replacing a copy installed before updates were available, delete the old `jellyfin.koplugin` folder first. Your server addresses and login are stored in KOReader's settings, not in the plugin folder, so they are kept.
+
+## Updating
+
+After the first install, update from the device:
+
+```text
+Tools → Jellyfin Books → Check for updates
+```
+
+The plugin checks this repository's latest release, shows what changed, installs it, and asks you to restart KOReader. Your settings and login are kept. If a download fails or a file arrives damaged, the installed version is left untouched.
 
 ## Configuration
 
@@ -196,6 +201,10 @@ You are not currently authenticated. Configure the server and log in first.
 
 This plugin currently browses Jellyfin libraries reported with the `books` collection type. Confirm the library is configured as a Books library in Jellyfin and that your user can access it.
 
+### Check for updates fails
+
+The device needs internet access to reach GitHub. GitHub also limits unauthenticated checks to 60 per hour per network; if you hit that limit, try again later.
+
 ### Login fails
 
 Check that:
@@ -208,6 +217,13 @@ Check that:
 ### Audiobooks download but do not open
 
 Audio playback is outside this plugin's scope. Install Audiobook Read-Along and the companion KOReader Audiobook Bridge.
+
+## Publishing a release
+
+1. Set the new version in `jellyfin.koplugin/_meta.lua` and `BUILD_VERSION` in `jellyfin.koplugin/main.lua`.
+2. Commit, then push a matching tag, for example `git tag v1.2.3 && git push origin v1.2.3`.
+
+GitHub Actions checks that the tag matches the plugin version, builds `jellyfin.koplugin.zip`, and publishes the release. The download link above and **Check for updates** on devices both pick it up automatically.
 
 ## Attribution and license
 

@@ -14,7 +14,7 @@ local Dispatcher = require("dispatcher")
 local logger = require("logger")
 local _ = require("gettext")
 
-local BUILD_VERSION = "2.0.0-alpha.3"
+local BUILD_VERSION = "2.0.0"
 
 -- Load our own modules by absolute plugin-relative path instead of generic
 -- require("config") / require("api") names. Third-party KOReader plugins share
@@ -31,6 +31,8 @@ local Config = dofile(PLUGIN_DIR .. "config.lua")
 local API = dofile(PLUGIN_DIR .. "api.lua")
 local Auth = dofile(PLUGIN_DIR .. "auth.lua")
 local UI = dofile(PLUGIN_DIR .. "ui.lua")
+-- The updater loads its networking modules only when an update check runs.
+local Updater = dofile(PLUGIN_DIR .. "updater.lua")
 
 local Jellyfin = WidgetContainer:extend {
     name = "jellyfin",
@@ -78,6 +80,11 @@ function Jellyfin:init()
     self.api = API:new(Config)
     self.auth = Auth:new(Config, self.api)
     self.ui_handler = UI:new(Config, self.api)
+    self.updater = Updater:new {
+        repo = "isaacAmejia/KOReader-Jellyfin-Enhanced",
+        folder = "jellyfin.koplugin",
+        title = _("Jellyfin Books"),
+    }
 
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
@@ -142,7 +149,9 @@ function Jellyfin:addToMainMenu(menu_items)
                 callback = function()
                     self:getAuth():logout()
                 end,
+                separator = true,
             },
+            self.updater:getMenuItem(),
         },
     }
 end
