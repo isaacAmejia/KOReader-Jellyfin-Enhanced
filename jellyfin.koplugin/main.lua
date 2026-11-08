@@ -14,7 +14,7 @@ local Dispatcher = require("dispatcher")
 local logger = require("logger")
 local _ = require("gettext")
 
-local BUILD_VERSION = "2.0.2"
+local BUILD_VERSION = "2.0.3"
 
 -- Load our own modules by absolute plugin-relative path instead of generic
 -- require("config") / require("api") names. Third-party KOReader plugins share

@@ -65,8 +65,11 @@ jobs:
       - name: Publish release
         if: steps.version.outputs.exists != 'true'
         run: |
+          # Release notes = the commit message that set this version. These
+          # are also what "Check for updates" shows on the device.
+          git log -1 --format=%B "$GITHUB_SHA" > release-notes.md
           gh release create "${{ steps.version.outputs.tag }}" "$PLUGIN_DIR.zip" \
             --target "$GITHUB_SHA" \
             --title "${{ steps.version.outputs.tag }}" \
-            --generate-notes \
+            --notes-file release-notes.md \
             --latest
