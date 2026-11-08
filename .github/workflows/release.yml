@@ -1,13 +1,19 @@
 name: Release
 
-# Push a tag like v1.2.3 (matching the version in _meta.lua) to publish a
-# release. The attached zip is what the README's download link and the
-# in-plugin "Check for updates" menu install.
+# Publishes a GitHub Release whenever the version in _meta.lua changes on main
+# (or when a matching vX.Y.Z tag is pushed). The attached zip is what the
+# README's download link and the in-plugin "Check for updates" menu install.
 
 on:
   push:
+    branches:
+      - main
+    paths:
+      - "jellyfin.koplugin/_meta.lua"
+      - ".github/workflows/release.yml"
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -17,16 +23,20 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PLUGIN_DIR: jellyfin.koplugin
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check tag matches plugin version
+      - name: Read plugin version
+        id: version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           meta=$(sed -n 's/.*version *= *"\([^"]*\)".*/\1/p' "$PLUGIN_DIR/_meta.lua")
-          echo "tag=$tag _meta.lua=$meta"
-          if [ "$tag" != "$meta" ]; then
-            echo "::error::Tag v$tag does not match _meta.lua version $meta"
+          if [ -z "$meta" ]; then
+            echo "::error::No version found in $PLUGIN_DIR/_meta.lua"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "${GITHUB_REF_NAME#v}" != "$meta" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match _meta.lua version $meta"
             exit 1
           fi
           build=$(sed -n 's/^local BUILD_VERSION = "\([^"]*\)".*/\1/p' "$PLUGIN_DIR/main.lua")
@@ -34,20 +44,29 @@ jobs:
             echo "::error::main.lua BUILD_VERSION $build does not match _meta.lua version $meta"
             exit 1
           fi
+          echo "tag=v$meta" >> "$GITHUB_OUTPUT"
+          if gh release view "v$meta" >/dev/null 2>&1; then
+            echo "Release v$meta already exists; nothing to publish."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Lua 5.1
+        if: steps.version.outputs.exists != 'true'
         run: sudo apt-get update && sudo apt-get install -y lua5.1
 
       - name: Parse plugin Lua files
+        if: steps.version.outputs.exists != 'true'
         run: find "$PLUGIN_DIR" -type f -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
 
       - name: Build zip
+        if: steps.version.outputs.exists != 'true'
         run: zip -r "$PLUGIN_DIR.zip" "$PLUGIN_DIR" -x '*.DS_Store'
 
       - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
+        if: steps.version.outputs.exists != 'true'
         run: |
-          gh release create "$GITHUB_REF_NAME" "$PLUGIN_DIR.zip" \
-            --title "$GITHUB_REF_NAME" \
+          gh release create "${{ steps.version.outputs.tag }}" "$PLUGIN_DIR.zip" \
+            --target "$GITHUB_SHA" \
+            --title "${{ steps.version.outputs.tag }}" \
             --generate-notes \
             --latest
