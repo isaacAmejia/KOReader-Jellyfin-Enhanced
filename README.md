@@ -221,9 +221,9 @@ Audio playback is outside this plugin's scope. Install Audiobook Read-Along and 
 ## Publishing a release
 
 1. Set the new version in `jellyfin.koplugin/_meta.lua` and `BUILD_VERSION` in `jellyfin.koplugin/main.lua`.
-2. Commit, then push a matching tag, for example `git tag v1.2.3 && git push origin v1.2.3`.
+2. Merge or push the change to `main`.
 
-GitHub Actions checks that the tag matches the plugin version, builds `jellyfin.koplugin.zip`, and publishes the release. The download link above and **Check for updates** on devices both pick it up automatically.
+GitHub Actions then tags the commit, builds `jellyfin.koplugin.zip`, and publishes the release. The download link above and **Check for updates** on devices both pick it up automatically.
 
 ## Attribution and license
 
